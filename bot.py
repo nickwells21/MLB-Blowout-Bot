@@ -28,6 +28,7 @@ load_dotenv()
 import alert_log
 import mlb_api
 import notifier
+import odds
 import paths
 import state
 
@@ -76,6 +77,19 @@ def check_game(game_pk, alerted):
             f"spread to increase (cover a bigger number) from here."
         )
 
+        home_team = linescore["home_name"]
+        away_team = linescore["away_name"]
+        odds_snapshot = odds.fetch_for_alert(home_team, away_team)
+
+        if odds_snapshot:
+            bet_spread = odds_snapshot.get(f"spread_{bet_side}")
+            bet_spread_price = odds_snapshot.get(f"spread_{bet_side}_price")
+            if bet_spread is not None:
+                message += (
+                    f"\nCurrent {odds_snapshot.get('book_title', 'book')} line: "
+                    f"{bet_team} {bet_spread:+g} ({bet_spread_price:+d})"
+                )
+
         print(f"\n=== ALERT ===\n{title}\n{message}\n")
         notifier.send_alert(title, message)
         alert_log.append(
@@ -89,6 +103,7 @@ def check_game(game_pk, alerted):
                 "bet_team_runs": bet_runs,
                 "conceding_team_runs": conceding_runs,
                 "run_diff": run_diff,
+                "odds_at_alert": odds_snapshot,
             }
         )
         alerted.add(key)
@@ -121,6 +136,7 @@ def run_once(alerted):
         except Exception as e:
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
+    odds.maybe_refresh_snapshot()
 
 
 def main():

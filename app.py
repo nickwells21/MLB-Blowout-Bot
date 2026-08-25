@@ -67,6 +67,11 @@ def alerts_json():
     return send_from_directory(paths.DATA_DIR, "alerts_log.json")
 
 
+@app.route("/odds_snapshot.json")
+def odds_json():
+    return send_from_directory(paths.DATA_DIR, "odds_snapshot.json")
+
+
 start_bot_thread()
 
 if __name__ == "__main__":

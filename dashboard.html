@@ -114,6 +114,65 @@
     font-size: 13px;
     padding: 20px 0;
   }
+  .games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .game-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .game-card .matchup {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .game-card .game-meta {
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 10px;
+  }
+  .odds-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr;
+    gap: 8px;
+    font-size: 12px;
+    padding: 4px 0;
+    border-top: 1px solid var(--border);
+  }
+  .odds-row:first-of-type { border-top: none; }
+  .odds-row .label {
+    color: var(--muted);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    align-self: center;
+  }
+  .odds-row .side { color: var(--text); }
+  .odds-row .price { color: var(--muted); margin-left: 4px; font-size: 11px; }
+  .book-tag {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .snapshot-age {
+    color: var(--muted);
+    font-size: 11px;
+    margin-left: 8px;
+  }
+  .alert-odds {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .alert-odds b { color: var(--text); }
 </style>
 </head>
 <body>
@@ -121,6 +180,9 @@
   <div class="subtitle">Position-player-pitching blowout scenarios &mdash; spread-increase betting signal</div>
 
   <div class="status-row" id="status-row"></div>
+
+  <h2>Live Games &mdash; Current Odds<span class="snapshot-age" id="snapshot-age"></span></h2>
+  <div id="games" class="games-grid"></div>
 
   <h2>Alert History</h2>
   <div id="alerts"></div>
@@ -179,6 +241,82 @@ function renderStatus(status) {
     </div>`;
 }
 
+function fmtAmerican(price) {
+  if (price === null || price === undefined) return '';
+  return price > 0 ? `+${price}` : `${price}`;
+}
+
+function fmtSpread(pts) {
+  if (pts === null || pts === undefined) return '';
+  return pts > 0 ? `+${pts}` : `${pts}`;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function renderGames(snapshot) {
+  const container = document.getElementById('games');
+  const ageEl = document.getElementById('snapshot-age');
+
+  if (!snapshot) {
+    container.innerHTML = '<div class="empty">Odds snapshot not available yet. If ODDS_API_KEY is set, the bot will populate this on the next 15-min refresh.</div>';
+    ageEl.textContent = '';
+    return;
+  }
+
+  const ageMin = Math.floor((Date.now() / 1000 - snapshot.fetched_at) / 60);
+  ageEl.textContent = ` — snapshot ${ageMin < 1 ? 'just refreshed' : ageMin + 'm old'}, book: ${snapshot.book}`;
+
+  const now = Date.now();
+  const games = (snapshot.games || []).filter(g => {
+    if (!g.commence_time) return true;
+    const start = new Date(g.commence_time).getTime();
+    return start < now + 6 * 3600 * 1000 && start > now - 6 * 3600 * 1000;
+  });
+
+  if (games.length === 0) {
+    container.innerHTML = '<div class="empty">No games in the current window.</div>';
+    return;
+  }
+
+  container.innerHTML = games.map(g => {
+    const started = g.commence_time && new Date(g.commence_time).getTime() < now;
+    const startLabel = g.commence_time
+      ? (started ? 'In progress' : new Date(g.commence_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
+      : '';
+    const bookTitle = g.book_title || g.book || '';
+    return `
+      <div class="game-card">
+        <div class="matchup">${esc(g.away_team)} @ ${esc(g.home_team)}</div>
+        <div class="game-meta">${esc(startLabel)} <span class="book-tag">&middot; ${esc(bookTitle)}</span></div>
+        ${renderOddsRow('Spread',
+          `${esc(g.away_team)} ${fmtSpread(g.spread_away)}`, g.spread_away_price,
+          `${esc(g.home_team)} ${fmtSpread(g.spread_home)}`, g.spread_home_price)}
+        ${renderOddsRow('ML',
+          esc(g.away_team), g.ml_away,
+          esc(g.home_team), g.ml_home)}
+        ${renderOddsRow('Total',
+          `Over ${g.total ?? ''}`, g.total_over_price,
+          `Under ${g.total ?? ''}`, g.total_under_price)}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderOddsRow(label, leftSide, leftPrice, rightSide, rightPrice) {
+  const hasAny = leftPrice != null || rightPrice != null;
+  if (!hasAny) return '';
+  return `
+    <div class="odds-row">
+      <span class="label">${label}</span>
+      <span class="side">${leftSide}<span class="price">${fmtAmerican(leftPrice)}</span></span>
+      <span class="side">${rightSide}<span class="price">${fmtAmerican(rightPrice)}</span></span>
+    </div>`;
+}
+
 function renderAlerts(alerts) {
   const container = document.getElementById('alerts');
   if (!alerts || alerts.length === 0) {
@@ -186,26 +324,45 @@ function renderAlerts(alerts) {
     return;
   }
   const sorted = [...alerts].reverse();
-  container.innerHTML = sorted.map(a => `
-    <div class="alert-card">
-      <div class="top-line">
-        <div class="matchup">${a.bet_team} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${a.conceding_team}</div>
-        <div class="time">${timeAgo(a.timestamp)}</div>
+  container.innerHTML = sorted.map(a => {
+    const o = a.odds_at_alert;
+    let oddsBlock = '';
+    if (o) {
+      const betSide = a.bet_team === o.home_team ? 'home' : 'away';
+      const spread = o[`spread_${betSide}`];
+      const spreadPrice = o[`spread_${betSide}_price`];
+      const ml = o[`ml_${betSide}`];
+      if (spread !== undefined && spread !== null) {
+        oddsBlock = `
+          <div class="alert-odds">
+            Line at alert (${esc(o.book_title || o.book)}): <b>${esc(a.bet_team)} ${fmtSpread(spread)}</b> (${fmtAmerican(spreadPrice)})${ml != null ? ` &middot; ML ${fmtAmerican(ml)}` : ''}
+          </div>`;
+      }
+    }
+    return `
+      <div class="alert-card">
+        <div class="top-line">
+          <div class="matchup">${esc(a.bet_team)} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${esc(a.conceding_team)}</div>
+          <div class="time">${timeAgo(a.timestamp)}</div>
+        </div>
+        <div class="detail">
+          <b>${esc(a.player_name)}</b> (${esc(a.player_position)}) pitched for ${esc(a.conceding_team)}, down ${a.run_diff} runs.
+        </div>
+        <div class="bet-tag">Bet: ${esc(a.bet_team)} spread to increase</div>
+        ${oddsBlock}
       </div>
-      <div class="detail">
-        <b>${a.player_name}</b> (${a.player_position}) pitched for ${a.conceding_team}, down ${a.run_diff} runs.
-      </div>
-      <div class="bet-tag">Bet: ${a.bet_team} spread to increase</div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 async function refresh() {
-  const [status, alerts] = await Promise.all([
+  const [status, alerts, odds] = await Promise.all([
     fetchJson('status.json'),
     fetchJson('alerts_log.json'),
+    fetchJson('odds_snapshot.json'),
   ]);
   renderStatus(status);
+  renderGames(odds);
   renderAlerts(alerts);
 }
 
