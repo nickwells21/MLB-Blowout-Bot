@@ -180,9 +180,13 @@ def _write_live_snapshot(game_pks):
 
 
 def run_once(alerted):
-    from datetime import date
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
-    today = date.today().isoformat()
+    # MLB game dates are in ET. Using the server's local date breaks when the
+    # process runs in UTC (e.g. Railway) between midnight ET and 3am ET —
+    # date.today() rolls over to tomorrow while west-coast games are still live.
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     game_pks = mlb_api.get_live_game_pks(today)
     for game_pk in game_pks:
         try:
