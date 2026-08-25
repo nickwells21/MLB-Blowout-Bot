@@ -84,3 +84,33 @@ def get_linescore_detail(game_pk):
         "home_runs": (teams.get("home") or {}).get("runs", 0),
         "away_runs": (teams.get("away") or {}).get("runs", 0),
     }
+
+
+def count_pitchers_used(boxscore, side):
+    """Number of distinct pitchers who have appeared for this team so far
+    this game (includes whoever is currently pitching -- e.g. the position
+    player). Subtract one from this to get prior relievers burned before the
+    position player entered; used as the bullpen-exhaustion signal."""
+    team = boxscore["teams"][side]
+    return len(team.get("pitchers", []))
+
+
+def get_starter_info(boxscore, side):
+    """Return {'player_id', 'name', 'innings_pitched'} for the side's starter
+    (the first entry in the team's chronological `pitchers` list), or None
+    if unavailable. innings_pitched is MLB's own notation (e.g. '3.1' = 3 1/3
+    innings), taken straight from the boxscore so it needs no conversion."""
+    team = boxscore["teams"][side]
+    pitcher_ids = team.get("pitchers", [])
+    if not pitcher_ids:
+        return None
+    starter_id = pitcher_ids[0]
+    player = team.get("players", {}).get(f"ID{starter_id}")
+    if not player:
+        return None
+    ip = player.get("stats", {}).get("pitching", {}).get("inningsPitched")
+    return {
+        "player_id": starter_id,
+        "name": player.get("person", {}).get("fullName"),
+        "innings_pitched": ip,
+    }
