@@ -1,0 +1,141 @@
+"""
+MLB Blowout Bot
+
+Watches live MLB games and alerts when a losing team brings in a position
+player to pitch during a blowout — historically a signal that the team has
+conceded the game, which tends to correlate with the winning team's final
+margin growing further. The betting angle: the winning team's spread is
+likely to increase (they cover a bigger number) from this point on.
+
+This bot only detects and alerts. It never places bets for you.
+
+Usage:
+    python bot.py
+
+Config (env vars, see .env.example):
+    NTFY_TOPIC              ntfy.sh topic to push alerts to (required for push;
+                             falls back to console-only if unset)
+    BLOWOUT_RUN_DIFF         minimum run differential to consider it a blowout (default 6)
+    POLL_INTERVAL_SECONDS    how often to poll live games (default 30)
+"""
+import os
+import time
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import alert_log
+import mlb_api
+import notifier
+import paths
+import state
+
+BLOWOUT_RUN_DIFF = int(os.environ.get("BLOWOUT_RUN_DIFF", "6"))
+POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
+
+
+def _now_iso():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def check_game(game_pk, alerted):
+    boxscore = mlb_api.get_boxscore(game_pk)
+    hits = mlb_api.find_position_players_pitching(boxscore)
+    if not hits:
+        return
+
+    linescore = mlb_api.get_linescore(boxscore)
+
+    for hit in hits:
+        key = f"{game_pk}:{hit['player_id']}"
+        if key in alerted:
+            continue
+
+        conceding_side = hit["side"]
+        bet_side = "home" if conceding_side == "away" else "away"
+
+        conceding_runs = linescore[conceding_side]
+        bet_runs = linescore[bet_side]
+        run_diff = bet_runs - conceding_runs
+
+        # Only alert if the position player's team is actually losing by enough.
+        if run_diff < BLOWOUT_RUN_DIFF:
+            continue
+
+        bet_team = linescore[f"{bet_side}_name"]
+        conceding_team = linescore[f"{conceding_side}_name"]
+
+        title = f"Position player pitching: {conceding_team} down {run_diff}"
+        message = (
+            f"{hit['name']} ({hit['real_position']}) is pitching for {conceding_team}.\n"
+            f"Score: {bet_team} {bet_runs} - {conceding_team} {conceding_runs}\n"
+            f"Signal: {conceding_team} has conceded. Consider betting {bet_team}'s "
+            f"spread to increase (cover a bigger number) from here."
+        )
+
+        print(f"\n=== ALERT ===\n{title}\n{message}\n")
+        notifier.send_alert(title, message)
+        alert_log.append(
+            {
+                "timestamp": _now_iso(),
+                "game_pk": game_pk,
+                "player_name": hit["name"],
+                "player_position": hit["real_position"],
+                "conceding_team": conceding_team,
+                "bet_team": bet_team,
+                "bet_team_runs": bet_runs,
+                "conceding_team_runs": conceding_runs,
+                "run_diff": run_diff,
+            }
+        )
+        alerted.add(key)
+
+
+def _write_status(live_game_count):
+    import json
+
+    with open(paths.data_path("status.json"), "w") as f:
+        json.dump(
+            {
+                "last_checked": _now_iso(),
+                "live_games": live_game_count,
+                "blowout_run_diff": BLOWOUT_RUN_DIFF,
+                "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+            },
+            f,
+            indent=2,
+        )
+
+
+def run_once(alerted):
+    from datetime import date
+
+    today = date.today().isoformat()
+    game_pks = mlb_api.get_live_game_pks(today)
+    for game_pk in game_pks:
+        try:
+            check_game(game_pk, alerted)
+        except Exception as e:
+            print(f"[bot] Error checking game {game_pk}: {e}")
+    _write_status(len(game_pks))
+
+
+def main():
+    print(f"MLB Blowout Bot starting. Blowout threshold: {BLOWOUT_RUN_DIFF} runs, "
+          f"polling every {POLL_INTERVAL_SECONDS}s.")
+    alerted = state.load_alerted()
+    try:
+        while True:
+            run_once(alerted)
+            state.save_alerted(alerted)
+            time.sleep(POLL_INTERVAL_SECONDS)
+    except KeyboardInterrupt:
+        print("\n[bot] Stopped.")
+        state.save_alerted(alerted)
+
+
+if __name__ == "__main__":
+    main()

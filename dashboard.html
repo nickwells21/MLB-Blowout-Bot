@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MLB Blowout Bot Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262b36;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #f2a71b;
+    --good: #2fbf71;
+    --bad: #e6584f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 32px;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  .status-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .status-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 140px;
+  }
+  .status-card .label {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+  }
+  .status-card .value {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dot.live { background: var(--good); }
+  .dot.stale { background: var(--bad); }
+  h2 {
+    font-size: 15px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 24px 0 12px;
+  }
+  .alert-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+  }
+  .alert-card .top-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .alert-card .matchup {
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .alert-card .time {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .alert-card .detail {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .alert-card .detail b { color: var(--text); }
+  .bet-tag {
+    display: inline-block;
+    background: rgba(242, 167, 27, 0.15);
+    color: var(--accent);
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 20px 0;
+  }
+</style>
+</head>
+<body>
+  <h1>MLB Blowout Bot</h1>
+  <div class="subtitle">Position-player-pitching blowout scenarios &mdash; spread-increase betting signal</div>
+
+  <div class="status-row" id="status-row"></div>
+
+  <h2>Alert History</h2>
+  <div id="alerts"></div>
+
+<script>
+const REFRESH_MS = 15000;
+
+async function fetchJson(path) {
+  try {
+    const res = await fetch(path + '?_=' + Date.now());
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+function timeAgo(isoString) {
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function renderStatus(status) {
+  const row = document.getElementById('status-row');
+  if (!status) {
+    row.innerHTML = `
+      <div class="status-card">
+        <div class="label">Bot Status</div>
+        <div class="value"><span class="dot stale"></span>Not running</div>
+      </div>`;
+    return;
+  }
+  const staleMs = Date.now() - new Date(status.last_checked).getTime();
+  const isLive = staleMs < (status.poll_interval_seconds + 60) * 1000;
+  row.innerHTML = `
+    <div class="status-card">
+      <div class="label">Bot Status</div>
+      <div class="value"><span class="dot ${isLive ? 'live' : 'stale'}"></span>${isLive ? 'Running' : 'Stale'}</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Live Games Watched</div>
+      <div class="value">${status.live_games}</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Blowout Threshold</div>
+      <div class="value">${status.blowout_run_diff}+ runs</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Last Checked</div>
+      <div class="value">${timeAgo(status.last_checked)}</div>
+    </div>`;
+}
+
+function renderAlerts(alerts) {
+  const container = document.getElementById('alerts');
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML = '<div class="empty">No scenarios detected yet. This is a rare event &mdash; the dashboard will populate automatically when one hits.</div>';
+    return;
+  }
+  const sorted = [...alerts].reverse();
+  container.innerHTML = sorted.map(a => `
+    <div class="alert-card">
+      <div class="top-line">
+        <div class="matchup">${a.bet_team} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${a.conceding_team}</div>
+        <div class="time">${timeAgo(a.timestamp)}</div>
+      </div>
+      <div class="detail">
+        <b>${a.player_name}</b> (${a.player_position}) pitched for ${a.conceding_team}, down ${a.run_diff} runs.
+      </div>
+      <div class="bet-tag">Bet: ${a.bet_team} spread to increase</div>
+    </div>
+  `).join('');
+}
+
+async function refresh() {
+  const [status, alerts] = await Promise.all([
+    fetchJson('status.json'),
+    fetchJson('alerts_log.json'),
+  ]);
+  renderStatus(status);
+  renderAlerts(alerts);
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>
