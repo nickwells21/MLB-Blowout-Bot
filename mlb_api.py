@@ -64,3 +64,23 @@ def get_linescore(boxscore):
         result[side] = team.get("teamStats", {}).get("batting", {}).get("runs", 0)
         result[f"{side}_name"] = team["team"]["name"]
     return result
+
+
+def get_linescore_detail(game_pk):
+    """Fetch the live linescore endpoint for a game and return the current
+    inning/half, ball-strike-out count, and score. Used to render the live
+    dashboard row for each in-progress game."""
+    resp = requests.get(f"{BASE}/game/{game_pk}/linescore", timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    teams = data.get("teams") or {}
+    return {
+        "inning": data.get("currentInning"),
+        "inning_ordinal": data.get("currentInningOrdinal"),
+        "inning_state": data.get("inningState"),
+        "balls": data.get("balls"),
+        "strikes": data.get("strikes"),
+        "outs": data.get("outs"),
+        "home_runs": (teams.get("home") or {}).get("runs", 0),
+        "away_runs": (teams.get("away") or {}).get("runs", 0),
+    }

@@ -2,81 +2,217 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>MLB Blowout Bot Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MLB Blowout Bot</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #171a21;
+    --bg: #0b0d12;
+    --panel: #141821;
+    --panel-2: #1b2030;
     --border: #262b36;
-    --text: #e6e8ee;
+    --border-strong: #333947;
+    --text: #eef1f7;
     --muted: #8b93a7;
+    --muted-strong: #b0b8cc;
     --accent: #f2a71b;
     --good: #2fbf71;
     --bad: #e6584f;
+    --winner: #2fbf71;
+    --loser: #e6584f;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    padding: 32px;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 16px 48px;
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
   }
-  h1 {
-    font-size: 22px;
-    margin: 0 0 4px;
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 40px 20px 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
   }
-  .subtitle {
+  .hero h1 {
+    font-size: 44px;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+    background: linear-gradient(90deg, var(--accent), #ff6a3d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero .tagline {
     color: var(--muted);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+
+  h2 {
     font-size: 13px;
-    margin-bottom: 24px;
-  }
-  .status-row {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 28px;
-    flex-wrap: wrap;
-  }
-  .status-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 18px;
-    min-width: 140px;
-  }
-  .status-card .label {
     color: var(--muted);
-    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 6px;
-  }
-  .status-card .value {
-    font-size: 20px;
+    letter-spacing: 0.08em;
+    margin: 32px 0 12px;
     font-weight: 600;
   }
-  .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 6px;
+
+  /* Game cards */
+  .games { display: flex; flex-direction: column; gap: 16px; }
+  .game-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
   }
-  .dot.live { background: var(--good); }
-  .dot.stale { background: var(--bad); }
-  h2 {
-    font-size: 15px;
+
+  .game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
+  }
+  .matchup {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .matchup .away { color: var(--muted-strong); }
+  .matchup .at { color: var(--muted); margin: 0 6px; font-size: 14px; }
+  .matchup .home { }
+
+  .score {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-align: right;
+  }
+  .score .winner-score { color: var(--winner); }
+  .score .loser-score { color: var(--loser); }
+  .score .sep { color: var(--muted); margin: 0 6px; font-weight: 400; }
+
+  .game-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .state-pill {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: var(--muted-strong);
+    font-weight: 500;
+  }
+  .state-pill b { color: var(--text); font-weight: 600; }
+
+  /* Two-column bet section */
+  .bets-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .team-col {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .team-col.winner { border-left: 3px solid var(--winner); }
+  .team-col.loser { border-left: 3px solid var(--loser); }
+  .team-col .team-name {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .team-col .team-tag {
+    font-size: 10px;
     color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin: 24px 0 12px;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
   }
+  .ladder-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 6px 0 4px;
+  }
+  .ladder-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 3px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .ladder-row .point { color: var(--text); font-weight: 500; }
+  .ladder-row .price { color: var(--muted-strong); }
+
+  .ml-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 6px 0 2px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  .ml-line .price { color: var(--muted-strong); }
+
+  .total-line {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--muted-strong);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .total-line b { color: var(--text); }
+  .total-line .over-under {
+    display: flex;
+    gap: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .book-tag {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 8px;
+  }
+
+  .no-odds {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+    padding: 4px 0;
+  }
+
+  /* Alert history */
   .alert-card {
     background: var(--panel);
     border: 1px solid var(--border);
     border-left: 3px solid var(--accent);
     border-radius: 8px;
-    padding: 14px 18px;
+    padding: 14px 16px;
     margin-bottom: 10px;
   }
   .alert-card .top-line {
@@ -85,17 +221,17 @@
     align-items: baseline;
     margin-bottom: 6px;
   }
-  .alert-card .matchup {
+  .alert-card .matchup-small {
     font-weight: 600;
-    font-size: 15px;
+    font-size: 14px;
   }
   .alert-card .time {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
   }
   .alert-card .detail {
-    color: var(--muted);
-    font-size: 13px;
+    color: var(--muted-strong);
+    font-size: 12px;
     line-height: 1.5;
   }
   .alert-card .detail b { color: var(--text); }
@@ -105,87 +241,86 @@
     color: var(--accent);
     border-radius: 5px;
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     margin-top: 8px;
-  }
-  .empty {
-    color: var(--muted);
-    font-size: 13px;
-    padding: 20px 0;
-  }
-  .games-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 12px;
-  }
-  .game-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-  }
-  .game-card .matchup {
-    font-weight: 600;
-    font-size: 14px;
-    margin-bottom: 4px;
-  }
-  .game-card .game-meta {
-    color: var(--muted);
-    font-size: 11px;
-    margin-bottom: 10px;
-  }
-  .odds-row {
-    display: grid;
-    grid-template-columns: 60px 1fr 1fr;
-    gap: 8px;
-    font-size: 12px;
-    padding: 4px 0;
-    border-top: 1px solid var(--border);
-  }
-  .odds-row:first-of-type { border-top: none; }
-  .odds-row .label {
-    color: var(--muted);
-    text-transform: uppercase;
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    align-self: center;
-  }
-  .odds-row .side { color: var(--text); }
-  .odds-row .price { color: var(--muted); margin-left: 4px; font-size: 11px; }
-  .book-tag {
-    display: inline-block;
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .snapshot-age {
-    color: var(--muted);
-    font-size: 11px;
-    margin-left: 8px;
   }
   .alert-odds {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
   }
   .alert-odds b { color: var(--text); }
+
+  /* Footer bot status */
+  .footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .footer-cards {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .status-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    min-width: 120px;
+  }
+  .status-card .label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+  .status-card .value {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .dot.live { background: var(--good); }
+  .dot.stale { background: var(--bad); }
+
+  .empty {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 24px;
+    text-align: center;
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+  }
 </style>
 </head>
 <body>
-  <h1>MLB Blowout Bot</h1>
-  <div class="subtitle">Position-player-pitching blowout scenarios &mdash; spread-increase betting signal</div>
+  <div class="hero">
+    <h1>MLB Blowout Bot</h1>
+    <div class="tagline">Position-player-pitching detection &middot; run-line ladder plays &middot; live edge signals</div>
+  </div>
 
-  <div class="status-row" id="status-row"></div>
-
-  <h2>Live Games &mdash; Current Odds<span class="snapshot-age" id="snapshot-age"></span></h2>
-  <div id="games" class="games-grid"></div>
+  <h2>Live Games</h2>
+  <div id="games" class="games"></div>
 
   <h2>Alert History</h2>
   <div id="alerts"></div>
+
+  <div class="footer">
+    <div class="footer-cards" id="footer-cards"></div>
+  </div>
 
 <script>
 const REFRESH_MS = 15000;
@@ -200,55 +335,15 @@ async function fetchJson(path) {
   }
 }
 
-function timeAgo(isoString) {
-  const diffMs = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function renderStatus(status) {
-  const row = document.getElementById('status-row');
-  if (!status) {
-    row.innerHTML = `
-      <div class="status-card">
-        <div class="label">Bot Status</div>
-        <div class="value"><span class="dot stale"></span>Not running</div>
-      </div>`;
-    return;
-  }
-  const staleMs = Date.now() - new Date(status.last_checked).getTime();
-  const isLive = staleMs < (status.poll_interval_seconds + 60) * 1000;
-  row.innerHTML = `
-    <div class="status-card">
-      <div class="label">Bot Status</div>
-      <div class="value"><span class="dot ${isLive ? 'live' : 'stale'}"></span>${isLive ? 'Running' : 'Stale'}</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Live Games Watched</div>
-      <div class="value">${status.live_games}</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Blowout Threshold</div>
-      <div class="value">${status.blowout_run_diff}+ runs</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Last Checked</div>
-      <div class="value">${timeAgo(status.last_checked)}</div>
-    </div>`;
-}
-
-function fmtAmerican(price) {
-  if (price === null || price === undefined) return '';
-  return price > 0 ? `+${price}` : `${price}`;
-}
-
-function fmtSpread(pts) {
-  if (pts === null || pts === undefined) return '';
-  return pts > 0 ? `+${pts}` : `${pts}`;
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - (typeof iso === 'number' ? iso * 1000 : new Date(iso).getTime());
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 function esc(s) {
@@ -257,70 +352,162 @@ function esc(s) {
   }[c]));
 }
 
-function renderGames(snapshot) {
-  const container = document.getElementById('games');
-  const ageEl = document.getElementById('snapshot-age');
-
-  if (!snapshot) {
-    container.innerHTML = '<div class="empty">Odds snapshot not available yet. If ODDS_API_KEY is set, the bot will populate this on the next 15-min refresh.</div>';
-    ageEl.textContent = '';
-    return;
-  }
-
-  const ageMin = Math.floor((Date.now() / 1000 - snapshot.fetched_at) / 60);
-  ageEl.textContent = ` — snapshot ${ageMin < 1 ? 'just refreshed' : ageMin + 'm old'}, book: ${snapshot.book}`;
-
-  const now = Date.now();
-  const games = (snapshot.games || []).filter(g => {
-    if (!g.commence_time) return true;
-    const start = new Date(g.commence_time).getTime();
-    return start < now + 6 * 3600 * 1000 && start > now - 6 * 3600 * 1000;
-  });
-
-  if (games.length === 0) {
-    container.innerHTML = '<div class="empty">No games in the current window.</div>';
-    return;
-  }
-
-  container.innerHTML = games.map(g => {
-    const started = g.commence_time && new Date(g.commence_time).getTime() < now;
-    const startLabel = g.commence_time
-      ? (started ? 'In progress' : new Date(g.commence_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
-      : '';
-    const bookTitle = g.book_title || g.book || '';
-    return `
-      <div class="game-card">
-        <div class="matchup">${esc(g.away_team)} @ ${esc(g.home_team)}</div>
-        <div class="game-meta">${esc(startLabel)} <span class="book-tag">&middot; ${esc(bookTitle)}</span></div>
-        ${renderOddsRow('Spread',
-          `${esc(g.away_team)} ${fmtSpread(g.spread_away)}`, g.spread_away_price,
-          `${esc(g.home_team)} ${fmtSpread(g.spread_home)}`, g.spread_home_price)}
-        ${renderOddsRow('ML',
-          esc(g.away_team), g.ml_away,
-          esc(g.home_team), g.ml_home)}
-        ${renderOddsRow('Total',
-          `Over ${g.total ?? ''}`, g.total_over_price,
-          `Under ${g.total ?? ''}`, g.total_under_price)}
-      </div>
-    `;
-  }).join('');
+function american(p) {
+  if (p == null) return '';
+  return p > 0 ? `+${p}` : `${p}`;
 }
 
-function renderOddsRow(label, leftSide, leftPrice, rightSide, rightPrice) {
-  const hasAny = leftPrice != null || rightPrice != null;
-  if (!hasAny) return '';
+function spreadPt(p) {
+  if (p == null) return '';
+  return p > 0 ? `+${p}` : `${p}`;
+}
+
+function renderInningPill(g) {
+  if (!g.inning) return '';
+  const halfMap = { Top: '▲', Bottom: '▼', Middle: '·', End: '·' };
+  const arrow = halfMap[g.inning_state] || '·';
+  return `<span class="state-pill"><b>${arrow} ${esc(g.inning_ordinal || g.inning)}</b></span>`;
+}
+
+function renderCountPill(g) {
+  if (g.balls == null && g.strikes == null && g.outs == null) return '';
+  return `<span class="state-pill"><b>${g.balls ?? 0}-${g.strikes ?? 0}</b> count &middot; <b>${g.outs ?? 0}</b> out${(g.outs ?? 0) === 1 ? '' : 's'}</span>`;
+}
+
+function renderGameCard(g) {
+  const awayWin = (g.away_runs ?? 0) > (g.home_runs ?? 0);
+  const homeWin = (g.home_runs ?? 0) > (g.away_runs ?? 0);
+  const awayCls = awayWin ? 'winner-score' : (homeWin ? 'loser-score' : '');
+  const homeCls = homeWin ? 'winner-score' : (awayWin ? 'loser-score' : '');
+
   return `
-    <div class="odds-row">
-      <span class="label">${label}</span>
-      <span class="side">${leftSide}<span class="price">${fmtAmerican(leftPrice)}</span></span>
-      <span class="side">${rightSide}<span class="price">${fmtAmerican(rightPrice)}</span></span>
-    </div>`;
+    <div class="game-card">
+      <div class="game-header">
+        <div class="matchup">
+          <span class="away">${esc(g.away_team)}</span>
+          <span class="at">@</span>
+          <span class="home">${esc(g.home_team)}</span>
+        </div>
+        <div class="score">
+          <span class="${awayCls}">${g.away_runs ?? 0}</span>
+          <span class="sep">-</span>
+          <span class="${homeCls}">${g.home_runs ?? 0}</span>
+        </div>
+      </div>
+
+      <div class="game-state">
+        ${renderInningPill(g)}
+        ${renderCountPill(g)}
+      </div>
+
+      ${renderBets(g)}
+    </div>
+  `;
+}
+
+function renderBets(g) {
+  const o = g.odds;
+  if (!o) {
+    return `<div class="no-odds">Odds not available for this matchup (book may not offer, or snapshot refresh pending).</div>`;
+  }
+
+  const homeIsWinner = (g.home_runs ?? 0) > (g.away_runs ?? 0);
+  const awayIsWinner = (g.away_runs ?? 0) > (g.home_runs ?? 0);
+
+  const leftIsWinner = homeIsWinner || (!awayIsWinner);
+  const leftSide = leftIsWinner ? 'home' : 'away';
+  const rightSide = leftIsWinner ? 'away' : 'home';
+
+  const leftTeam = leftSide === 'home' ? o.home_team : o.away_team;
+  const rightTeam = rightSide === 'home' ? o.home_team : o.away_team;
+  const leftLadder = o[`spreads_${leftSide}`] || [];
+  const rightLadder = o[`spreads_${rightSide}`] || [];
+  const leftML = o[`moneyline_${leftSide}`];
+  const rightML = o[`moneyline_${rightSide}`];
+
+  const leftTag = homeIsWinner === (leftSide === 'home') && (homeIsWinner || awayIsWinner) ? 'Leading' : (leftSide === 'home' ? 'Home' : 'Away');
+  const rightTag = homeIsWinner === (rightSide === 'home') && (homeIsWinner || awayIsWinner) ? 'Leading' : (rightSide === 'home' ? 'Home' : 'Away');
+  const leftIsWinnerReal = (leftSide === 'home' && homeIsWinner) || (leftSide === 'away' && awayIsWinner);
+  const rightIsWinnerReal = (rightSide === 'home' && homeIsWinner) || (rightSide === 'away' && awayIsWinner);
+
+  const total = o.total_point;
+  const totalBlock = total != null ? `
+    <div class="total-line">
+      <span>Total: <b>${total}</b></span>
+      <span class="over-under">
+        <span>Over ${american(o.total_over_price)}</span>
+        <span>Under ${american(o.total_under_price)}</span>
+      </span>
+    </div>
+  ` : '';
+
+  return `
+    <div class="bets-grid">
+      ${renderTeamCol(leftTeam, leftTag, leftIsWinnerReal, leftLadder, leftML)}
+      ${renderTeamCol(rightTeam, rightTag, rightIsWinnerReal, rightLadder, rightML)}
+    </div>
+    ${totalBlock}
+    <div class="book-tag">Lines from ${esc(o.book_title || o.book || '')}</div>
+  `;
+}
+
+function filterLadder(ladder, ml) {
+  if (!ladder || !ladder.length) return [];
+  // Pick the ladder side matching the moneyline sign: dog (+ML) plays +spreads,
+  // favorite (-ML) plays -spreads. Fall back to whichever side is more populated.
+  let filtered;
+  if (ml != null) {
+    filtered = ladder.filter(l => (ml > 0 ? l.point > 0 : l.point < 0));
+  } else {
+    const pos = ladder.filter(l => l.point > 0);
+    const neg = ladder.filter(l => l.point < 0);
+    filtered = pos.length >= neg.length ? pos : neg;
+  }
+  // Drop unrealistic prices (anything worse than -600 or better than +600 is
+  // not a real ladder play — those are lock/no-shot lines).
+  filtered = filtered.filter(l => l.price != null && l.price >= -600 && l.price <= 600);
+  filtered.sort((a, b) => Math.abs(a.point) - Math.abs(b.point));
+  return filtered.slice(0, 8);
+}
+
+function renderTeamCol(name, tag, isWinner, ladder, ml) {
+  const cls = isWinner ? 'winner' : (tag === 'Leading' ? 'loser' : '');
+  const trimmed = filterLadder(ladder, ml);
+  const ladderRows = trimmed.length ? trimmed.map(l => `
+    <div class="ladder-row">
+      <span class="point">${spreadPt(l.point)}</span>
+      <span class="price">${american(l.price)}</span>
+    </div>
+  `).join('') : `<div class="no-odds">No run-line ladder</div>`;
+  const mlRow = ml != null ? `
+    <div class="ml-line">
+      <span>Moneyline</span>
+      <span class="price">${american(ml)}</span>
+    </div>` : '';
+  return `
+    <div class="team-col ${cls}">
+      <div class="team-name">${esc(name)}</div>
+      <div class="team-tag">${tag}</div>
+      <div class="ladder-label">Run Line Ladder</div>
+      ${ladderRows}
+      ${mlRow}
+    </div>
+  `;
+}
+
+function renderGames(snapshot) {
+  const container = document.getElementById('games');
+  if (!snapshot || !snapshot.games || snapshot.games.length === 0) {
+    container.innerHTML = '<div class="empty">No live MLB games right now. Cards will appear here automatically once games are in progress.</div>';
+    return;
+  }
+  container.innerHTML = snapshot.games.map(renderGameCard).join('');
 }
 
 function renderAlerts(alerts) {
   const container = document.getElementById('alerts');
   if (!alerts || alerts.length === 0) {
-    container.innerHTML = '<div class="empty">No scenarios detected yet. This is a rare event &mdash; the dashboard will populate automatically when one hits.</div>';
+    container.innerHTML = '<div class="empty">No blowout scenarios detected yet. This is a rare event — will populate automatically when one hits.</div>';
     return;
   }
   const sorted = [...alerts].reverse();
@@ -329,20 +516,20 @@ function renderAlerts(alerts) {
     let oddsBlock = '';
     if (o) {
       const betSide = a.bet_team === o.home_team ? 'home' : 'away';
-      const spread = o[`spread_${betSide}`];
-      const spreadPrice = o[`spread_${betSide}_price`];
-      const ml = o[`ml_${betSide}`];
-      if (spread !== undefined && spread !== null) {
+      const s = o[`spread_${betSide}`];
+      const sp = o[`spread_${betSide}_price`];
+      const ml = o[`ml_${betSide}`] ?? o[`moneyline_${betSide}`];
+      if (s != null) {
         oddsBlock = `
           <div class="alert-odds">
-            Line at alert (${esc(o.book_title || o.book)}): <b>${esc(a.bet_team)} ${fmtSpread(spread)}</b> (${fmtAmerican(spreadPrice)})${ml != null ? ` &middot; ML ${fmtAmerican(ml)}` : ''}
+            Line at alert (${esc(o.book_title || o.book || '')}): <b>${esc(a.bet_team)} ${spreadPt(s)}</b> (${american(sp)})${ml != null ? ` &middot; ML ${american(ml)}` : ''}
           </div>`;
       }
     }
     return `
       <div class="alert-card">
         <div class="top-line">
-          <div class="matchup">${esc(a.bet_team)} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${esc(a.conceding_team)}</div>
+          <div class="matchup-small">${esc(a.bet_team)} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${esc(a.conceding_team)}</div>
           <div class="time">${timeAgo(a.timestamp)}</div>
         </div>
         <div class="detail">
@@ -355,15 +542,50 @@ function renderAlerts(alerts) {
   }).join('');
 }
 
+function renderFooter(status, snapshot) {
+  const el = document.getElementById('footer-cards');
+  const isLive = status && (Date.now() - new Date(status.last_checked).getTime()) < (status.poll_interval_seconds + 60) * 1000;
+  const quota = snapshot && snapshot.quota;
+  const snapshotAge = snapshot && snapshot.fetched_at ? timeAgo(snapshot.fetched_at) : '—';
+
+  el.innerHTML = `
+    <div class="status-card">
+      <div class="label">Bot Status</div>
+      <div class="value"><span class="dot ${isLive ? 'live' : 'stale'}"></span>${isLive ? 'Running' : 'Stale'}</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Live Games</div>
+      <div class="value">${status ? status.live_games : '—'}</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Threshold</div>
+      <div class="value">${status ? status.blowout_run_diff + '+ runs' : '—'}</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Last Poll</div>
+      <div class="value">${status ? timeAgo(status.last_checked) : '—'}</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Odds Snapshot</div>
+      <div class="value">${snapshotAge}</div>
+    </div>
+    ${quota && quota.remaining != null ? `
+    <div class="status-card">
+      <div class="label">Odds API Left</div>
+      <div class="value">${esc(quota.remaining)}</div>
+    </div>` : ''}
+  `;
+}
+
 async function refresh() {
-  const [status, alerts, odds] = await Promise.all([
+  const [status, alerts, snapshot] = await Promise.all([
     fetchJson('status.json'),
     fetchJson('alerts_log.json'),
-    fetchJson('odds_snapshot.json'),
+    fetchJson('live_snapshot.json'),
   ]);
-  renderStatus(status);
-  renderGames(odds);
+  renderGames(snapshot);
   renderAlerts(alerts);
+  renderFooter(status, snapshot);
 }
 
 refresh();

@@ -125,6 +125,60 @@ def _write_status(live_game_count):
         )
 
 
+def _write_live_snapshot(game_pks):
+    """For each live game, fetch score/inning/count and match with odds
+    (moneyline, totals, run-line ladder). Writes live_snapshot.json for the
+    dashboard. Skips the odds API entirely when no games are live to protect
+    the free-tier quota."""
+    import json
+
+    payload = {
+        "fetched_at": time.time(),
+        "book": odds.BOOK,
+        "quota": odds.quota_status() if game_pks else None,
+        "games": [],
+    }
+
+    all_odds = odds.get_cached_or_fetch() if game_pks else None
+    # quota_status() reflects the fetch that may have just happened above
+    if game_pks:
+        payload["quota"] = odds.quota_status()
+
+    for pk in game_pks:
+        try:
+            box = mlb_api.get_boxscore(pk)
+            detail = mlb_api.get_linescore_detail(pk)
+            home_team = box["teams"]["home"]["team"]["name"]
+            away_team = box["teams"]["away"]["team"]["name"]
+            game_odds = None
+            if all_odds:
+                match = odds.find_game(all_odds, home_team, away_team)
+                if match:
+                    alt = odds.get_alternates_for_event(match.get("id"))
+                    game_odds = odds.extract_for_book(match, alt, odds.BOOK)
+            payload["games"].append(
+                {
+                    "game_pk": pk,
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "home_runs": detail.get("home_runs", 0),
+                    "away_runs": detail.get("away_runs", 0),
+                    "inning": detail.get("inning"),
+                    "inning_ordinal": detail.get("inning_ordinal"),
+                    "inning_state": detail.get("inning_state"),
+                    "balls": detail.get("balls"),
+                    "strikes": detail.get("strikes"),
+                    "outs": detail.get("outs"),
+                    "odds": game_odds,
+                }
+            )
+        except Exception as e:
+            print(f"[bot] Snapshot error for game {pk}: {e}")
+
+    with open(paths.data_path("live_snapshot.json"), "w") as f:
+        json.dump(payload, f, indent=2)
+
+
 def run_once(alerted):
     from datetime import date
 
@@ -136,7 +190,7 @@ def run_once(alerted):
         except Exception as e:
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
-    odds.maybe_refresh_snapshot()
+    _write_live_snapshot(game_pks)
 
 
 def main():

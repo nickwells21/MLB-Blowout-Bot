@@ -72,6 +72,11 @@ def odds_json():
     return send_from_directory(paths.DATA_DIR, "odds_snapshot.json")
 
 
+@app.route("/live_snapshot.json")
+def live_json():
+    return send_from_directory(paths.DATA_DIR, "live_snapshot.json")
+
+
 start_bot_thread()
 
 if __name__ == "__main__":
