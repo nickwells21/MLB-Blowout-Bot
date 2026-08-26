@@ -234,10 +234,323 @@
   .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-2); font-weight: 700; margin-bottom: 4px; }
   .stat .v { font-size: 17px; font-weight: 700; font-family: var(--mono); }
   .empty { padding: 34px 16px; text-align: center; color: var(--muted-2); font-size: 13px; }
+
+/* ==========================================================================
+   MOBILE — "Nocturne" design handoff. Separate information architecture,
+   same fetch and same derived values as desktop; only DOM composition differs.
+   Active under 700px via body.mobile (set in JS, re-evaluated on resize).
+   ========================================================================== */
+  :root {
+    --n-ground:#161826; --n-surf:#1c1e2b; --n-raised:#1f1d2e; --n-armed:#1d1b2b;
+    --n-nav:#191b28; --n-navact:#232640;
+    --n-tx:#e9e9ed; --n-tx2:#b2b6ca; --n-tx3:#9397ab; --n-tx4:#75798c; --n-tx5:#595d6c;
+    --n-bd:#22242f; --n-bd2:#2b2d3a; --n-bd3:#2f3240; --n-bd4:#3f424d;
+    --n-ac:#9184d9; --n-ac300:#d2cefd; --n-ac400:#b5abfc; --n-ac600:#796cbf;
+    --n-ac700:#5d5294; --n-ac800:#423a6a; --n-ac900:#2b2741; --n-actint:#252734;
+    --n-good:oklch(0.72 0.10 152); --n-bad:oklch(0.65 0.13 26);
+    --n-badmute:#5c4a4a; --n-warn:oklch(0.78 0.11 78);
+    --n-signal:#211f33;
+  }
+  body.mobile { max-width:none; padding:0; background:var(--n-ground); color:var(--n-tx);
+    font-variant-numeric: tabular-nums; font-size:14px; line-height:1.5; }
+  body.mobile #desk-root { display:none; }
+  body.mobile #m-root { display:block; }
+  body:not(.mobile) #m-root { display:none !important; }
+  #m-root { padding-bottom:96px; }
+  #m-screen { position:relative; }
+
+  @keyframes bbPulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+  @keyframes bbSweep { 0%{transform:translateY(-4px);opacity:0} 10%{opacity:1} 100%{transform:translateY(700px);opacity:0} }
+  @keyframes bbIn { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
+  .m-sweep { position:fixed; left:0; right:0; top:0; height:2px; z-index:6; pointer-events:none;
+    background:linear-gradient(90deg,rgba(145,132,217,0),#9184d9,rgba(145,132,217,0));
+    animation:bbSweep 1.1s linear; }
+  .bbin { animation:bbIn .18s ease-out; }
+
+  .m-tap { cursor:pointer; }
+  .m-tap:active { opacity:.6; }
+  #m-root :focus-visible { outline:2px solid var(--n-ac); outline-offset:2px; }
+
+  /* Bottom tab bar */
+  .m-tab { position:fixed; left:0; right:0; bottom:0; z-index:5;
+    display:flex; gap:2px; padding:7px 8px calc(30px + env(safe-area-inset-bottom, 0px));
+    background:var(--n-nav); border-top:1px solid #262838; }
+  .m-tab button { flex:1; appearance:none; background:transparent; border:0; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    padding:7px 0 5px; border-radius:9px; color:var(--n-tx4);
+    font-family:var(--font); font-size:9.5px; letter-spacing:.04em; min-height:44px; }
+  .m-tab button.on { background:var(--n-navact); color:var(--n-ac300); }
+  .m-tab svg { width:18px; height:18px; fill:none; stroke:currentColor;
+    stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* List header */
+  .m-head { padding:0 18px 10px; background:linear-gradient(180deg,#1c1e2e 0%,#161826 100%); }
+  .m-head .r1 { height:26px; display:flex; align-items:center; justify-content:space-between; }
+  .m-mark { display:flex; align-items:center; gap:7px; }
+  .m-markbox { width:15px; height:15px; border:1px solid var(--n-ac); border-radius:4px;
+    display:flex; align-items:center; justify-content:center; }
+  .m-markdot { width:5px; height:5px; border-radius:50%; background:var(--n-good);
+    animation:bbPulse 2s ease-in-out infinite; }
+  .m-markdot.asleep { background:var(--n-tx4); animation:none; }
+  .m-wordmark { font-size:10.5px; font-weight:500; letter-spacing:.15em; color:var(--n-tx2); }
+  .m-fresh { font-size:10px; letter-spacing:.05em; color:var(--n-tx4); }
+  .m-fresh.stale { color:var(--n-warn); }
+  .m-refresh { width:26px; height:26px; border:1px solid var(--n-bd4); border-radius:7px;
+    background:transparent; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .m-refresh svg { width:13px; height:13px; fill:none; stroke:var(--n-tx2); stroke-width:1.4;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .m-head .r2 { margin-top:11px; display:flex; align-items:flex-end; justify-content:space-between; gap:10px; }
+  .m-head h1 { font-size:26px; line-height:1; letter-spacing:-.022em; font-weight:500; color:var(--n-tx); margin:0; }
+  .m-head .meta { font-size:11px; color:var(--n-tx4); padding-bottom:2px; }
+
+  /* Kickers + sections */
+  .m-kick { font-size:9.5px; letter-spacing:.15em; color:var(--n-tx4); }
+  .m-kick2 { font-size:9px; letter-spacing:.12em; color:var(--n-tx5); }
+  .m-sec { padding:20px 18px 0; }
+  .m-seclabel { padding:0 18px 9px; display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .m-seclabel .rt { font-size:10.5px; color:var(--n-tx5); }
+
+  /* Date strip */
+  .m-dates { display:flex; gap:6px; padding:4px 18px 12px; overflow-x:auto; scrollbar-width:none; }
+  .m-dates::-webkit-scrollbar { width:0; height:0; }
+  .m-date { min-width:42px; padding:6px 8px; border-radius:8px; text-align:center;
+    border:1px solid var(--n-bd3); background:transparent; flex:none; }
+  .m-date.on { border-color:var(--n-ac700); background:var(--n-ac900); }
+  .m-date .dw { font-size:9px; letter-spacing:.09em; color:var(--n-tx4); }
+  .m-date .dn { font-size:13px; margin-top:2px; color:var(--n-tx3); }
+  .m-date.on .dn { color:var(--n-tx); }
+  .m-date .dd { width:3px; height:3px; border-radius:50%; margin:4px auto 0; background:transparent; }
+  .m-date .dd.today { background:var(--n-good); }
+  .m-date .dd.alert { background:var(--n-ac); }
+  .m-date.past { opacity:.45; }
+
+  /* Sleep banner */
+  .m-sleep { margin:0 18px 14px; padding:13px 14px; border-radius:10px;
+    border:1px solid var(--n-bd4); background:var(--n-surf); }
+  .m-sleep .hl { font-size:18px; margin-top:7px; letter-spacing:-.01em; }
+  .m-sleep .sb { font-size:11.5px; color:var(--n-tx3); margin-top:4px; }
+
+  /* Flagged card */
+  .m-card { margin:0 18px 11px; padding:14px; border-radius:12px; border:1px solid var(--n-bd4);
+    background:var(--n-surf); }
+  .m-card.strong { border-color:var(--n-ac700);
+    background:radial-gradient(130% 150% at 100% 0%,#2b2741 0%,#1d1f2e 60%,#1a1c29 100%);
+    box-shadow:0 6px 24px rgba(93,82,148,.35); }
+  .m-card .tier { font-size:9.5px; letter-spacing:.14em; color:var(--n-tx2); }
+  .m-card.strong .tier { color:var(--n-ac300); }
+  .m-verdict { font-size:10px; letter-spacing:.12em; padding:3px 7px; border-radius:5px;
+    border:1px solid var(--n-bd4); background:var(--n-actint); color:var(--n-tx2); white-space:nowrap; }
+  .m-verdict.strong { color:var(--n-ac300); background:var(--n-ac900); border-color:var(--n-ac700); }
+  .m-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .m-teams { flex:1; min-width:0; }
+  .m-trow { display:flex; align-items:baseline; justify-content:space-between; gap:10px; font-size:15px; }
+  .m-trow + .m-trow { margin-top:3px; }
+  .m-trow .nm { color:var(--n-tx3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-trow.lead .nm { color:var(--n-tx); }
+  .m-trow .sc { color:var(--n-tx4); flex:none; }
+  .m-trow.lead .sc { color:var(--n-tx); }
+  .m-inncol { flex:none; border-left:1px solid #33364a; padding-left:12px; min-width:74px; text-align:right; }
+  .m-inncol .a { font-size:12px; color:var(--n-tx); }
+  .m-inncol .b { font-size:10.5px; color:var(--n-tx4); margin-top:2px; }
+
+  /* Meters */
+  .m-meter + .m-meter { margin-top:8px; }
+  .m-meter .lab { display:flex; justify-content:space-between; gap:8px; font-size:10.5px; color:var(--n-tx3); }
+  .m-track { height:3px; border-radius:2px; background:var(--n-bd2); margin-top:4px; overflow:hidden; }
+  .m-track.t4 { height:4px; }
+  .m-fill { height:100%; background:var(--n-warn); border-radius:2px; }
+  .m-fill.clear { background:var(--n-ac); }
+  .m-meter .note { font-size:10.5px; color:var(--n-tx4); margin-top:5px; }
+
+  .m-cardfoot { margin-top:13px; padding-top:11px; border-top:1px solid var(--n-bd2);
+    display:flex; justify-content:space-between; gap:12px; }
+  .m-cardfoot .v { font-size:13px; color:var(--n-tx); margin-top:3px; }
+  .m-cardfoot .v2 { font-size:12px; color:var(--n-tx2); margin-top:3px; }
+
+  /* Chips */
+  .m-chips { padding:7px 18px 10px; display:flex; gap:6px; align-items:center; }
+  .m-chip { font-size:11px; padding:5px 10px; border-radius:999px; border:1px solid var(--n-bd3);
+    background:transparent; color:var(--n-tx3); cursor:pointer; font-family:var(--font); }
+  .m-chip.on { border-color:var(--n-ac700); background:var(--n-ac900); color:var(--n-tx); }
+  .m-sort { margin-left:auto; display:flex; align-items:center; gap:4px; font-size:11px;
+    color:var(--n-tx3); background:transparent; border:0; cursor:pointer; font-family:var(--font); }
+  .m-sort svg { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:1.4;
+    stroke-linecap:round; stroke-linejoin:round; }
+
+  /* Slate + generic rows */
+  .m-lrow { padding:12px 18px; border-top:1px solid var(--n-bd); display:flex; align-items:center; gap:12px; }
+  .m-rail { width:2px; height:34px; border-radius:2px; background:var(--n-bd3); flex:none; }
+  .m-rail.strong { background:var(--n-ac); }
+  .m-rail.lean { background:var(--n-ac700); }
+  .m-lrow .mid { flex:1; min-width:0; }
+  .m-lrow .mid .m-trow { font-size:13.5px; }
+  .m-rt { width:66px; text-align:right; flex:none; }
+  .m-rt .a { font-size:11.5px; color:var(--n-tx2); }
+  .m-rt .b { font-size:10px; color:var(--n-tx5); margin-top:2px; }
+  .m-vd { width:44px; text-align:right; flex:none; font-size:10px; letter-spacing:.1em; color:var(--n-tx4); }
+  .m-vd.strong { color:var(--n-ac300); }
+  .m-vd.lean { color:var(--n-tx2); }
+
+  /* Empty state */
+  .m-empty { padding:34px 18px; text-align:center; border-top:1px solid var(--n-bd); }
+  .m-empty .a { font-size:13px; color:var(--n-tx4); }
+  .m-empty .b { font-size:11px; color:var(--n-tx5); margin-top:5px; }
+
+  /* Stat grids */
+  .m-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px 10px; }
+  .m-grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-top:11px; }
+  .m-cell .k { font-size:9px; letter-spacing:.12em; color:var(--n-tx5); }
+  .m-cell .v { font-size:13.5px; color:var(--n-tx); margin-top:3px; }
+  .m-statfoot { margin:16px 18px 0; padding-top:14px; border-top:1px solid var(--n-bd); }
+
+  /* Panels */
+  .m-panel { margin:16px 18px 0; padding:13px 14px; border-radius:10px;
+    border:1px solid var(--n-bd3); background:var(--n-surf); }
+  .m-panel.dashed { border:1px dashed var(--n-ac700); background:#1e1c2c; }
+  .m-panel .body { font-size:12px; color:var(--n-tx2); margin-top:8px; text-wrap:pretty; }
+
+  /* Live monitor */
+  .m-intro { padding:2px 18px 12px; font-size:11.5px; color:var(--n-tx4); text-wrap:pretty; }
+  .m-mrow { padding:12px 18px; border-top:1px solid var(--n-bd); }
+  .m-mrow.hot { background:var(--n-raised); }
+  .m-mrow .l1 { display:flex; gap:10px; align-items:center; }
+  .m-mrow .mu { flex:1; font-size:13.5px; color:var(--n-tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-mrow .sc { flex:none; font-size:13.5px; color:var(--n-tx3); }
+  .m-mrow .sc.big { color:var(--n-tx); }
+  .m-mrow .inn { flex:none; width:52px; text-align:right; font-size:11px; color:var(--n-tx4); }
+  .m-mrow .l2 { margin-top:9px; display:flex; gap:8px; align-items:center; }
+  .m-mrow .l2 .m-track { flex:1; margin-top:0; }
+  .m-mrow .gate { width:150px; text-align:right; font-size:10.5px; color:var(--n-tx3); flex:none; }
+
+  /* Game detail */
+  .m-ghead { padding:0 18px 0; background:linear-gradient(180deg,#20223a 0%,#161826 100%); }
+  .m-shead { padding:0 18px 14px; background:linear-gradient(180deg,#282348 0%,#161826 100%); }
+  .m-back { height:26px; display:flex; align-items:center; gap:5px; font-size:12px;
+    color:var(--n-ac400); background:transparent; border:0; cursor:pointer; font-family:var(--font); padding:0; }
+  .m-back svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.5;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .m-ident { margin-top:10px; display:flex; align-items:flex-start; gap:12px; }
+  .m-ident .names { flex:1; min-width:0; }
+  .m-ident .names .a { font-size:11px; color:var(--n-tx4); }
+  .m-ident .names .b { font-size:11px; color:var(--n-tx); margin-top:2px; }
+  .m-ident .rt { flex:none; display:flex; gap:14px; }
+  .m-ident .scores { text-align:right; font-size:19px; font-weight:500; }
+  .m-ident .scores .lo { color:var(--n-tx4); }
+  .m-ident .inncol { border-left:1px solid var(--n-bd3); padding-left:14px; }
+  .m-ident .inncol .a { font-size:12px; color:var(--n-tx); }
+  .m-ident .inncol .b { font-size:11px; color:var(--n-tx4); margin-top:3px; }
+  .m-tabs { margin-top:12px; display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; }
+  .m-tabs::-webkit-scrollbar { width:0; height:0; }
+  .m-tabs button { padding:8px 11px 9px; font-size:11.5px; white-space:nowrap; flex:none;
+    background:transparent; border:0; border-bottom:2px solid transparent; color:var(--n-tx4);
+    cursor:pointer; font-family:var(--font); }
+  .m-tabs button.on { color:var(--n-tx); border-bottom-color:var(--n-ac); }
+
+  .m-vcard { margin:14px 18px 0; padding:14px; border-radius:11px; border:1px solid var(--n-bd4); background:var(--n-surf); }
+  .m-vcard.strong { border-color:var(--n-ac700);
+    background:radial-gradient(130% 150% at 100% 0%,#2b2741 0%,#1d1f2e 60%,#1a1c29 100%); }
+  .m-vcard .reason { font-size:14px; color:var(--n-tx); margin-top:9px; text-wrap:pretty; }
+  .m-vcard .foot { margin-top:12px; padding-top:11px; border-top:1px solid var(--n-bd3);
+    display:flex; justify-content:space-between; gap:12px; }
+
+  /* Bot read tiers */
+  .m-tier { padding:12px 18px; border-top:1px solid var(--n-bd); display:flex; gap:11px; align-items:flex-start; }
+  .m-tier.armed { background:var(--n-armed); }
+  .m-tier .dot { width:6px; height:6px; border-radius:50%; background:var(--n-bd4); margin-top:6px; flex:none; }
+  .m-tier.armed .dot { background:var(--n-ac); }
+  .m-tier .nm { font-size:13px; color:var(--n-tx); }
+  .m-tier .dt { font-size:11px; color:var(--n-tx3); margin-top:3px; text-wrap:pretty; }
+  .m-tier .st { font-size:9.5px; letter-spacing:.11em; color:var(--n-tx5); flex:none; margin-top:2px; }
+  .m-tier.armed .st { color:var(--n-ac300); }
+
+  /* Pitching / bullpen */
+  .m-pblock { padding:14px 18px; border-top:1px solid var(--n-bd); }
+  .m-pblock .nm { font-size:17px; margin-top:8px; letter-spacing:-.01em; }
+  .m-pblock .note { font-size:11px; color:var(--n-tx4); margin-top:10px; text-wrap:pretty; }
+  .m-tl { font-size:9.5px; letter-spacing:.13em; color:var(--n-tx4); }
+  .m-tl.conceding { color:var(--n-ac300); }
+  .m-stag { font-size:10px; letter-spacing:.11em; color:var(--n-tx4); }
+  .m-stag.warn { color:var(--n-warn); }
+  .m-arm { padding:10px 18px; border-top:1px solid var(--n-bd); display:flex; gap:11px; align-items:flex-start; }
+  .m-arm.now { background:var(--n-raised); }
+  .m-arm .ix { width:18px; font-size:10px; color:var(--n-tx5); flex:none; }
+  .m-arm .who { flex:1; min-width:0; }
+  .m-arm .who .n { font-size:13px; color:var(--n-tx2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-arm.now .who .n { color:var(--n-tx); }
+  .m-arm .who .r { font-size:10.5px; color:var(--n-tx4); margin-top:2px; }
+  .m-arm .ip { width:46px; text-align:right; font-size:12px; color:var(--n-tx2); flex:none; }
+  .m-arm .pc { width:44px; text-align:right; font-size:12px; color:var(--n-tx2); flex:none; }
+  .m-arm .nw { width:26px; text-align:right; font-size:9px; letter-spacing:.09em; color:var(--n-ac300); flex:none; }
+
+  /* Ladder */
+  .m-lad { padding:12px 18px; border-top:1px solid var(--n-bd); display:flex; gap:12px; align-items:center; }
+  .m-lad.best { background:var(--n-raised); }
+  .m-lad .pt { width:56px; font-size:16px; color:var(--n-tx2); flex:none; }
+  .m-lad.best .pt { color:var(--n-tx); }
+  .m-lad .pr { width:58px; text-align:right; font-size:14px; color:var(--n-tx3); flex:none; }
+  .m-lad .pr.plus { color:var(--n-ac300); }
+  .m-lad .m-track { flex:1; margin-top:0; }
+  .m-fill.plus { background:var(--n-ac700); }
+  .m-fill.minus { background:var(--n-bd4); }
+  .m-fill.best { background:var(--n-ac); }
+
+  /* Alerts */
+  .m-alert { padding:14px 18px; border-top:1px solid var(--n-bd); }
+  .m-badge { font-size:9.5px; letter-spacing:.13em; padding:3px 6px; border-radius:4px;
+    border:1px solid var(--n-bd4); background:var(--n-actint); color:var(--n-tx2); white-space:nowrap; }
+  .m-badge.ex { color:var(--n-ac300); background:var(--n-ac900); border-color:var(--n-ac700); }
+  .m-alert .ts { font-size:10.5px; color:var(--n-tx5); }
+  .m-alert .hl { font-size:14.5px; color:var(--n-tx); margin-top:10px; text-wrap:pretty; }
+  .m-alert .l3 { margin-top:9px; display:flex; gap:14px; align-items:baseline; font-size:11px; color:var(--n-tx3); }
+  .m-out { margin-left:auto; font-size:10px; letter-spacing:.1em; color:var(--n-tx4); }
+  .m-out.won { color:var(--n-good); }
+  .m-out.lost { color:var(--n-bad); }
+
+  /* Signal detail */
+  .m-pcard { margin:2px 18px 0; padding:14px; border-radius:11px;
+    border:1px solid var(--n-ac800); background:var(--n-signal); }
+  .m-pcard .n { font-size:19px; margin-top:8px; letter-spacing:-.015em; }
+  .m-pcard .m { font-size:12px; color:var(--n-tx2); margin-top:3px; }
+  .m-check { padding:10px 0; border-bottom:1px solid var(--n-bd); display:flex; gap:11px; align-items:flex-start; }
+  .m-box { width:13px; height:13px; border-radius:4px; border:1px solid var(--n-ac700);
+    background:var(--n-ac900); margin-top:3px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .m-box svg { width:8px; height:8px; fill:none; stroke:var(--n-ac300); stroke-width:1.7;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .m-check .lb { font-size:12.5px; color:var(--n-tx); }
+  .m-check .dt { font-size:11px; color:var(--n-tx4); margin-top:2px; text-wrap:pretty; }
+  .m-seg { display:flex; gap:7px; margin-top:10px; }
+  .m-seg button { flex:1; padding:9px 0; border-radius:8px; font-size:12px; text-align:center;
+    border:1px solid var(--n-bd3); background:transparent; color:var(--n-tx3);
+    cursor:pointer; font-family:var(--font); }
+  .m-seg button.on { border-color:var(--n-ac700); background:var(--n-ac900); color:var(--n-tx); }
+
+  /* Track record */
+  .m-hero { margin:2px 18px 0; padding:15px; border-radius:12px; border:1px solid var(--n-bd4);
+    background:linear-gradient(160deg,#20223a 0%,#1a1c29 100%); }
+  .m-hero .big { font-size:42px; line-height:.9; letter-spacing:-.03em; font-weight:500; }
+  .m-hero .side { padding-bottom:5px; }
+  .m-hero .side .a { font-size:12px; color:var(--n-tx2); }
+  .m-hero .side .b { font-size:11px; color:var(--n-tx4); }
+  .m-unval { margin:14px 18px 0; padding:13px 14px; border-radius:10px;
+    border:1px solid var(--n-ac800); background:var(--n-signal); }
+  .m-unval .body { font-size:12.5px; color:#cfd3e5; margin-top:8px; text-wrap:pretty; }
+  .m-split { height:5px; border-radius:3px; background:var(--n-bd2); margin-top:6px; display:flex; overflow:hidden; }
+  .m-split .w { background:var(--n-good); }
+  .m-split .l { background:var(--n-badmute); }
+  .m-bars { display:flex; align-items:flex-end; gap:7px; height:78px; margin-top:11px; }
+  .m-bars .col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; }
+  .m-bars .bar { width:100%; border-radius:3px 3px 0 0; background:var(--n-bd4); }
+  .m-bars .lb { font-size:9.5px; color:var(--n-tx4); margin-top:5px; }
+  .m-rule { padding:10px 0; border-bottom:1px solid var(--n-bd); display:flex; gap:11px; align-items:flex-start; }
+  .m-rule .d { width:5px; height:5px; border-radius:50%; margin-top:6px; flex:none; background:var(--n-ac700); }
+  .m-rule .n { font-size:12.5px; color:var(--n-tx); }
+  .m-rule .r { font-size:11px; color:var(--n-tx4); margin-top:2px; text-wrap:pretty; }
+  .m-rule .p { font-size:9.5px; letter-spacing:.09em; color:var(--n-tx4); flex:none; margin-top:2px; }
 </style>
 </head>
 <body>
 
+<div id="desk-root">
   <div class="masthead">
     <div>
       <h1>MLB Blowout Bot</h1>
@@ -284,6 +597,13 @@
     <div class="band"><span>Bot Status</span></div>
     <div class="boxed"><div class="stats" id="stats"></div></div>
   </div>
+</div><!-- /desk-root -->
+
+<div id="m-root" hidden>
+  <div class="m-sweep" id="m-sweep" hidden></div>
+  <div id="m-screen"></div>
+  <nav class="m-tab" id="m-tab"></nav>
+</div>
 
 <script>
 const REFRESH_MS = 15000;
@@ -675,19 +995,743 @@ function renderStats(st, snap) {
 
 document.getElementById('sort').onchange = e => { S.sort = e.target.value; renderSlate(); };
 
-async function refresh() {
+async function refresh(force) {
+  if (force && typeof M !== 'undefined') {
+    M.polling = true;
+    const sw = document.getElementById('m-sweep');
+    if (sw) { sw.hidden = false; sw.style.animation = 'none'; void sw.offsetWidth; sw.style.animation = ''; }
+    renderMobile();
+  }
   const [st, al, snap] = await Promise.all([
     getJSON('status.json'), getJSON('alerts_log.json'), getJSON('live_snapshot.json'),
   ]);
   S.games = (snap && snap.games) || [];
   S.status = st;
+  // Desktop renderers
   renderHead(st);
   renderBotState(st);
   renderPills();
   renderSlate();
   renderAlerts(al);
   renderStats(st, snap);
+  // Mobile state + renderer
+  if (typeof M !== 'undefined') {
+    M.alerts = Array.isArray(al) ? al : [];
+    M.snap = snap;
+    M.polling = false;
+    const sw = document.getElementById('m-sweep');
+    if (sw) sw.hidden = true;
+    renderMobile();
+  }
 }
+/* ==========================================================================
+   MOBILE RENDERER — "Nocturne" handoff. Shares every fetch and helper above;
+   only the DOM composition differs. Switches at 700px.
+   ========================================================================== */
+const MQ = window.matchMedia('(max-width: 700px)');
+const M = {
+  screen: 'slate', gameId: null, tab: 'overview', alertKey: null,
+  filter: 'All', sort: 'Lead', tierFilter: 'All',
+  polling: false, alerts: [], snap: null, outcomes: {},
+};
+const MINUS = '−';  // U+2212, not a hyphen — spec calls this out.
+
+/* --- outcome persistence: localStorage is the "minimum viable fix" the
+   handoff specifies; there is no POST endpoint yet. Every access is guarded
+   because private windows and blocked site-data both throw on read. --- */
+const OUT_KEY = 'bb_outcomes_v1';
+function loadOutcomes() {
+  try { return JSON.parse(localStorage.getItem(OUT_KEY) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function saveOutcomes() {
+  try { localStorage.setItem(OUT_KEY, JSON.stringify(M.outcomes)); } catch (e) {}
+}
+function alertKey(a) { return String(a.game_pk) + ':' + String(a.player_name) + ':' + String(a.timestamp); }
+
+/* --- thresholds come from status.json so a Railway env change moves the UI --- */
+function thr(k, d) {
+  const v = S.status && S.status[k];
+  return (v === undefined || v === null) ? d : v;
+}
+function requiredDiff(inning) {
+  const i = inning ?? 0;
+  return i >= 7 ? thr('run_diff_late', 4) : thr('run_diff_mid', 6);
+}
+function verdictOf(g) {
+  const r = trailRelievers(g);
+  if (r >= thr('bullpen_exhaustion_count', 4) && lead(g) >= requiredDiff(g.inning)) return 'STRONG';
+  if (g.urgency) return 'LEAN';
+  return 'PASS';
+}
+function readiness(g) {
+  const req = requiredDiff(g.inning) || 1;
+  const exh = thr('bullpen_exhaustion_count', 4) || 1;
+  return 0.55 * Math.min(1, lead(g) / req) + 0.45 * Math.min(1, trailRelievers(g) / exh);
+}
+// Three MLB nicknames are two words. Taking only the last token turns
+// "Chicago White Sox" into "the Sox", so match those explicitly first.
+const TWO_WORD_NICKS = ['White Sox', 'Red Sox', 'Blue Jays'];
+function nick(name) {
+  const n = String(name || '').trim();
+  if (!n) return '';
+  const two = TWO_WORD_NICKS.find(t => n.endsWith(t));
+  if (two) return two;
+  const s = n.split(' ');
+  return s.length > 1 ? s[s.length - 1] : s[0];
+}
+function commas(n) {
+  const v = Number(n);
+  return isFinite(v) ? v.toLocaleString() : String(n);
+}
+function curArm(g, side) { const p = pen(g, side); return p.length ? p[p.length - 1] : null; }
+function betTeam(g) { const t = trailing(g); return t ? g[(t === 'home' ? 'away' : 'home') + '_team'] : null; }
+
+/* --- small builders --- */
+const h = (s) => s;
+function meter(labelLeft, cur, req, note) {
+  const clear = req > 0 && cur >= req;
+  const w = req > 0 ? Math.min(100, (cur / req) * 100) : 0;
+  return '<div class="m-meter"><div class="lab"><span>' + esc(labelLeft) + '</span>'
+    + '<span>' + esc(cur) + ' / ' + esc(req) + '</span></div>'
+    + '<div class="m-track"><div class="m-fill' + (clear ? ' clear' : '') + '" style="width:' + w + '%"></div></div>'
+    + (note ? '<div class="note">' + esc(note) + '</div>' : '')
+    + '</div>';
+}
+function teamRows(g, big) {
+  const a = g.away_runs ?? 0, hh = g.home_runs ?? 0;
+  const mk = (name, sc, isLead) => '<div class="m-trow' + (isLead ? ' lead' : '') + '">'
+    + '<span class="nm">' + esc(name) + '</span><span class="sc">' + esc(sc) + '</span></div>';
+  return mk(g.away_team, a, a >= hh && a !== hh ? true : a > hh) + mk(g.home_team, hh, hh > a);
+}
+function svgIcon(d, size) {
+  return '<svg viewBox="0 0 20 20" width="' + (size || 18) + '" height="' + (size || 18) + '"><path d="' + d + '"/></svg>';
+}
+
+/* --- header shared by the four list screens --- */
+function mHeader(title, metaRight) {
+  const st = S.status;
+  const sleeping = st && st.bot_state === 'sleeping';
+  let fresh = 'polling…', staleCls = '';
+  if (!M.polling && st && st.last_checked) {
+    if (sleeping) fresh = 'asleep';
+    else {
+      const secs = Math.max(0, Math.round((Date.now() - Date.parse(st.last_checked)) / 1000));
+      fresh = secs + 's ago';
+      if (secs > 25) staleCls = ' stale';
+    }
+  }
+  return '<div class="m-head"><div class="r1">'
+    + '<div class="m-mark"><div class="m-markbox"><div class="m-markdot' + (sleeping ? ' asleep' : '') + '"></div></div>'
+    + '<span class="m-wordmark">BLOWOUT BOT</span></div>'
+    + '<div style="display:flex;align-items:center;gap:8px">'
+    +   '<span class="m-fresh' + staleCls + '">' + esc(fresh) + '</span>'
+    +   '<button class="m-refresh" id="m-force" aria-label="Refresh now">'
+    +     '<svg viewBox="0 0 16 16"><path d="M13.6 8a5.6 5.6 0 1 1-1.7-4"/><path d="M13.6 1.7v3.4h-3.4"/></svg>'
+    +   '</button>'
+    + '</div></div>'
+    + '<div class="r2"><h1>' + esc(title) + '</h1><span class="meta">' + esc(metaRight || '') + '</span></div></div>';
+}
+
+/* --- Screen: Slate --- */
+function mDateStrip() {
+  // Past dates need a GET /day/<date> that does not exist yet, so the strip
+  // renders for orientation but only today is selectable. Faking history here
+  // would be worse than omitting it.
+  const today = new Date();
+  let out = '<div class="m-dates">';
+  for (let i = -4; i <= 2; i++) {
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    const isToday = i === 0;
+    out += '<div class="m-date' + (isToday ? ' on' : ' past') + '"'
+      + (isToday ? '' : ' title="Past slates need a history endpoint that does not exist yet"') + '>'
+      + '<div class="dw">' + d.toLocaleDateString([], { weekday: 'short' }).toUpperCase() + '</div>'
+      + '<div class="dn">' + d.getDate() + '</div>'
+      + '<div class="dd' + (isToday ? ' today' : '') + '"></div></div>';
+  }
+  return out + '</div>';
+}
+function mSleepBanner() {
+  const st = S.status;
+  if (!st || !st.bot_state) return '';           // absent -> hide, never guess
+  if (st.bot_state !== 'sleeping') return '';
+  const sc = st.schedule || {};
+  const until = untilText(sc.next_wake);
+  const when = sc.next_wake ? new Date(Date.parse(sc.next_wake)) : null;
+  const abs = when ? when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+                     + ', ' + when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+  return '<div class="m-sleep"><div class="m-kick">BOT ASLEEP &middot; BY DESIGN</div>'
+    + '<div class="hl">' + esc(sc.games_today === 0 ? 'No games today' : (until ? 'Wakes ' + until.replace(/^in /, 'in ') : 'Waiting for the next slate')) + '</div>'
+    + (abs ? '<div class="sb">' + esc(abs) + ' &middot; 5 min before first pitch</div>' : '')
+    + '</div>';
+}
+function mFlaggedCard(g) {
+  const v = verdictOf(g), t = trailing(g);
+  const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 4);
+  const arm = t ? curArm(g, t) : null;
+  const bt = betTeam(g);
+  const sa = g.odds && (g.odds['spreads_' + (t === 'home' ? 'away' : 'home')] || [])[0];
+  const tier = v === 'STRONG' ? 'BULLPEN EXHAUSTED &middot; ARMED'
+    : 'URGENCY MODE &middot; ON' + (g.inning ? ' SINCE ' + esc(g.inning_ordinal || g.inning).toUpperCase() : '');
+  return '<div class="m-card m-tap' + (v === 'STRONG' ? ' strong' : '') + '" data-mpk="' + esc(g.game_pk) + '" tabindex="0" role="button">'
+    + '<div class="m-row"><span class="tier">' + tier + '</span>'
+    +   '<span class="m-verdict' + (v === 'STRONG' ? ' strong' : '') + '">' + v + '</span></div>'
+    + '<div class="m-row" style="margin-top:12px;align-items:flex-end;gap:12px">'
+    +   '<div class="m-teams">' + teamRows(g) + '</div>'
+    +   '<div class="m-inncol"><div class="a">' + esc(inningTxt(g)) + '</div>'
+    +     '<div class="b">' + (g.balls ?? 0) + MINUS.replace(MINUS, '-') + (g.strikes ?? 0) + ', ' + (g.outs ?? 0) + ' out</div></div>'
+    + '</div>'
+    + '<div style="margin-top:13px">' + meter('Run diff', lead(g), req) + meter('Relievers burned', rel, exh) + '</div>'
+    + '<div class="m-cardfoot"><div><div class="m-kick2">BUY IF IT FIRES</div>'
+    +   '<div class="v">' + esc(bt ? nick(bt) : '—') + (sa ? ' ' + fmtPoint(sa.point) : '') + '</div></div>'
+    +   '<div style="text-align:right"><div class="m-kick2">CURRENT ARM</div>'
+    +   '<div class="v2">' + esc(arm ? arm.name : '—') + '</div></div></div>'
+    + '</div>';
+}
+function fmtPoint(p) { return p == null ? '' : (p < 0 ? MINUS + Math.abs(p) : '+' + p); }
+function fmtPrice(p) { return p == null ? '—' : (p < 0 ? MINUS + Math.abs(p) : '+' + p); }
+
+function mSlateRow(g) {
+  const v = verdictOf(g);
+  const rail = v === 'STRONG' ? 'strong' : (v === 'LEAN' ? 'lean' : '');
+  const rel = trailRelievers(g);
+  return '<div class="m-lrow m-tap" data-mpk="' + esc(g.game_pk) + '" tabindex="0" role="button">'
+    + '<span class="m-rail ' + rail + '"></span>'
+    + '<span class="mid">' + teamRows(g) + '</span>'
+    + '<span class="m-rt"><div class="a">' + esc(inningTxt(g)) + '</div>'
+    +   '<div class="b">' + (g.inning ? rel + ' arms' : '—') + '</div></span>'
+    + '<span class="m-vd ' + rail + '">' + v + '</span>'
+    + '</div>';
+}
+function mFilterSort() {
+  const chips = ['All', 'Urgency', 'Lead 6+'];
+  return '<div class="m-chips">'
+    + chips.map(c => '<button class="m-chip' + (M.filter === c ? ' on' : '') + '" data-mc="' + esc(c) + '">' + esc(c) + '</button>').join('')
+    + '<button class="m-sort" id="m-sortbtn">'
+    +   '<svg viewBox="0 0 16 16"><path d="M4 3v10M4 13 1.8 10.6M4 13l2.2-2.4M12 13V3M12 3 9.8 5.4M12 3l2.2 2.4"/></svg>'
+    +   '<span>' + esc(M.sort) + '</span></button></div>';
+}
+function mFilterFn(g) {
+  if (M.filter === 'Urgency') return !!g.urgency;
+  if (M.filter === 'Lead 6+') return lead(g) >= 6;
+  return true;
+}
+function mSortGames(list) {
+  const rank = { STRONG: 2, LEAN: 1, PASS: 0 };
+  return [...list].sort((a, b) => {
+    const v = rank[verdictOf(b)] - rank[verdictOf(a)];
+    if (v) return v;
+    if (M.sort === 'Inning') return (b.inning ?? 0) - (a.inning ?? 0);
+    if (M.sort === 'Bullpen') return trailRelievers(b) - trailRelievers(a);
+    return lead(b) - lead(a);
+  });
+}
+function screenSlate() {
+  const st = S.status, sc = (st && st.schedule) || {};
+  const all = S.games;
+  const shown = mSortGames(all.filter(mFilterFn));
+  const flagged = shown.filter(g => verdictOf(g) !== 'PASS');
+  const live = all.length;
+
+  let out = mHeader('Today', live + ' live' + (sc.games_today != null ? ' · ' + sc.games_today + ' today' : ''));
+  out += mDateStrip();
+  out += mSleepBanner();
+
+  if (flagged.length) {
+    out += '<div class="m-seclabel"><span class="m-kick">FLAGGED NOW &middot; ' + flagged.length + '</span>'
+      + '<span class="rt">ranked by verdict</span></div>';
+    out += flagged.map(mFlaggedCard).join('');
+  }
+  out += mFilterSort();
+  if (!shown.length) {
+    let a, b;
+    if (all.length > 0) {
+      a = 'Nothing matches that filter';
+      b = 'Clear the filter to see the full slate.';
+    } else if (sc.games_today > 0 && sc.games_final >= sc.games_today) {
+      // Slate happened and finished — "no games scheduled" would be wrong.
+      a = "Today's slate is complete";
+      b = 'All ' + sc.games_today + ' games are final. The bot sleeps until the next first pitch.';
+    } else if (sc.games_today > 0) {
+      a = 'No games in progress';
+      b = sc.games_today + ' scheduled today. Live cards appear once first pitch lands.';
+    } else {
+      a = 'No games scheduled';
+      b = 'The bot sleeps through empty days and still writes its heartbeat every 60s.';
+    }
+    out += '<div class="m-empty"><div class="a">' + esc(a) + '</div><div class="b">' + esc(b) + '</div></div>';
+  } else {
+    out += shown.map(mSlateRow).join('');
+  }
+  // Stats footer — only the cells we actually have data for.
+  const cells = [];
+  if (sc.games_today != null) cells.push(['GAMES TODAY', sc.games_today]);
+  if (sc.games_final != null) cells.push(['GAMES FINAL', sc.games_final]);
+  if (sc.first_pitch) cells.push(['FIRST PITCH', clockLocal(sc.first_pitch) || '—']);
+  const q = M.snap && M.snap.quota;
+  if (q && q.remaining != null) cells.push(['ODDS QUOTA', commas(q.remaining) + ' left']);
+  if (cells.length) {
+    out += '<div class="m-statfoot"><div class="m-grid2">'
+      + cells.map(c => '<div class="m-cell"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div></div>').join('')
+      + '</div></div>';
+  }
+  return out;
+}
+
+/* --- Screen: Live monitor --- */
+function screenLive() {
+  const st = S.status;
+  const live = [...S.games].sort((a, b) => readiness(b) - readiness(a));
+  let out = mHeader('Live monitor', live.length + ' in progress');
+  out += '<div class="m-intro">Every live game, closest to firing first. One screen, no taps.</div>';
+  if (!live.length) {
+    out += '<div class="m-empty"><div class="a">Nothing live right now</div>'
+      + '<div class="b">' + esc(emptyMsg()) + '</div></div>';
+  }
+  out += live.map(g => {
+    const r = readiness(g), pctRaw = r * 100;
+    const req = requiredDiff(g.inning), rel = trailRelievers(g), exh = thr('bullpen_exhaustion_count', 4);
+    let cls = 'minus', fill = 'var(--n-bd4)';
+    if (r > 0.95) { cls = 'best'; } else if (r > 0.6) { cls = ''; }
+    let gate;
+    if (r > 0.95) gate = 'armed — needs a position player';
+    else if (lead(g) < req) gate = (req - lead(g)) + ' runs to the gate';
+    else gate = Math.max(0, exh - rel) + ' arms to exhaustion';
+    const fillCls = r > 0.95 ? 'm-fill best' : (r > 0.6 ? 'm-fill' : 'm-fill minus');
+    return '<div class="m-mrow m-tap' + (r > 0.95 ? ' hot' : '') + '" data-mpk="' + esc(g.game_pk) + '" tabindex="0" role="button">'
+      + '<div class="l1"><span class="mu">' + esc(g.away_team) + ' @ ' + esc(g.home_team) + '</span>'
+      +   '<span class="sc' + (lead(g) >= 6 ? ' big' : '') + '">' + (g.away_runs ?? 0) + MINUS + (g.home_runs ?? 0) + '</span>'
+      +   '<span class="inn">' + esc(inningTxt(g)) + '</span></div>'
+      + '<div class="l2"><span class="m-track t4"><span class="' + fillCls + '" style="display:block;width:' + Math.min(100, pctRaw) + '%"></span></span>'
+      +   '<span class="gate">' + esc(gate) + '</span></div>'
+      + '</div>';
+  }).join('');
+  out += '<div class="m-panel"><div class="m-kick">POLL LOOP</div>'
+    + '<div class="m-grid2" style="margin-top:10px">'
+    + [['STATE', st ? (st.bot_state || '—') : '—'],
+       ['INTERVAL', st ? st.poll_interval_seconds + 's' : '—'],
+       ['LAST POLL', st ? ago(st.last_checked) : '—'],
+       ['BOOK', (M.snap && M.snap.book) || '—']]
+      .map(c => '<div class="m-cell"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div></div>').join('')
+    + '</div></div>';
+  return out;
+}
+
+/* --- Screen: Game detail --- */
+const M_TABS = [
+  ['overview', 'Overview'], ['botread', 'Bot read'], ['pitching', 'Pitching'],
+  ['bullpen', 'Bullpen'], ['ladder', 'Ladder'],
+];
+function mGame() { return S.games.find(g => String(g.game_pk) === String(M.gameId)) || null; }
+function screenGame() {
+  const g = mGame();
+  if (!g) { M.screen = 'slate'; return screenSlate(); }
+  const a = g.away_runs ?? 0, hh = g.home_runs ?? 0;
+  let out = '<div class="m-ghead">'
+    + '<button class="m-back" id="m-back"><svg viewBox="0 0 13 16"><path d="M9.5 3.5 5 8l4.5 4.5"/></svg>Slate</button>'
+    + '<div class="m-ident"><div class="names"><div class="a">' + esc(g.away_team) + '</div>'
+    +   '<div class="b">' + esc(g.home_team) + '</div></div>'
+    +   '<div class="rt"><div class="scores"><div class="' + (a < hh ? 'lo' : '') + '">' + a + '</div>'
+    +     '<div class="' + (hh < a ? 'lo' : '') + '">' + hh + '</div></div>'
+    +     '<div class="inncol"><div class="a">' + esc(inningTxt(g)) + '</div>'
+    +     '<div class="b">' + (g.balls ?? 0) + '-' + (g.strikes ?? 0) + ', ' + (g.outs ?? 0) + ' out</div></div></div></div>'
+    + '<div class="m-tabs">' + M_TABS.map(t =>
+        '<button class="' + (M.tab === t[0] ? 'on' : '') + '" data-mt="' + t[0] + '">' + esc(t[1]) + '</button>').join('')
+    + '</div></div><div class="bbin">';
+  if (M.tab === 'overview') out += gOverview(g);
+  else if (M.tab === 'botread') out += gBotRead(g);
+  else if (M.tab === 'pitching') out += gPitching(g);
+  else if (M.tab === 'bullpen') out += gBullpen(g);
+  else out += gLadder(g);
+  return out + '</div>';
+}
+function gOverview(g) {
+  const v = verdictOf(g), t = trailing(g);
+  const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 4);
+  const bt = betTeam(g), ct = t ? g[t + '_team'] : null;
+  let reason;
+  if (v === 'STRONG') reason = 'Bullpen-exhausted gate is already clear at ' + rel + ' relievers. A position player on the mound fires urgent, immediately, with no inning or run-diff check.';
+  else if (v === 'LEAN') reason = 'Urgency latched at lead ' + thr('urgency_run_diff', 6) + ' with ' + thr('urgency_min_relievers', 2) + '+ relievers used. Still ' + Math.max(0, exh - rel) + ' arms short of the exhaustion bypass, so the blowout tier is what would fire.';
+  else if (lead(g) >= req) reason = 'Run diff clears, but the trailing bullpen is only ' + rel + ' deep and urgency has not latched.';
+  else reason = 'Lead is ' + Math.max(0, req - lead(g)) + ' short of the inning-' + (g.inning ?? '?') + ' requirement. Nothing armed.';
+  const sa = g.odds && (g.odds['spreads_' + (t === 'home' ? 'away' : 'home')] || [])[0];
+  return '<div class="m-vcard' + (v === 'STRONG' ? ' strong' : '') + '">'
+    + '<div class="m-row"><span class="m-kick" style="color:' + (v === 'STRONG' ? 'var(--n-ac300)' : 'var(--n-tx2)') + '">VERDICT</span>'
+    +   '<span class="m-verdict' + (v === 'STRONG' ? ' strong' : '') + '">' + v + '</span></div>'
+    + '<div class="reason">' + esc(reason) + '</div>'
+    + '<div class="foot"><div><div class="m-kick2">BUY IF IT FIRES</div>'
+    +   '<div style="font-size:14px;margin-top:3px">' + esc(bt ? nick(bt) : '—') + (sa ? ' ' + fmtPoint(sa.point) : '') + '</div></div>'
+    +   '<div style="text-align:right"><div class="m-kick2">CONCEDING SIDE</div>'
+    +   '<div style="font-size:12.5px;color:var(--n-tx2);margin-top:3px">' + esc(ct ? nick(ct) : '—') + '</div></div></div></div>'
+    + '<div class="m-sec"><div class="m-kick">DISTANCE TO TRIGGER</div><div style="margin-top:11px">'
+    +   meter('Run differential', lead(g), req, 'Innings 7+ drop the requirement to ' + thr('run_diff_late', 4) + '.')
+    +   meter('Relievers burned', rel, exh, Math.max(0, exh - rel) + ' more and the exhaustion gate opens.')
+    +   meter('Urgency latch', g.urgency ? 1 : 0, 1, 'Pushes on every half-inning and every trailing-team arm. Exits below lead ' + thr('urgency_exit_run_diff', 4) + '.')
+    + '</div></div>'
+    + '<div class="m-sec"><div class="m-kick">GAME STATE</div><div class="m-grid2" style="margin-top:11px">'
+    + [['LEAD', lead(g)], ['INNING', inningTxt(g)],
+       ['COUNT', (g.balls ?? 0) + '-' + (g.strikes ?? 0) + ', ' + (g.outs ?? 0) + ' out'],
+       ['RELIEVERS', rel]]
+      .map(c => '<div class="m-cell"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div></div>').join('')
+    + '</div></div>';
+}
+function gBotRead(g) {
+  const l = lead(g), rel = trailRelievers(g), req = requiredDiff(g.inning);
+  const exh = thr('bullpen_exhaustion_count', 4), bigT = thr('big_lead_threshold', 6), extT = thr('extreme_lead_threshold', 10);
+  const i = g.inning ?? 0, minI = thr('min_inning', 5);
+  const rows = [
+    ['Big Lead Watch', l >= bigT && l < extT, 'lead ' + bigT + '+, any inning',
+      l >= extT ? 'suppressed — Extreme owns ' + extT + '+' : 'repeats every +' + thr('big_lead_step', 3) + ' runs'],
+    ['Extreme Lead', l >= extT, 'lead ' + extT + '+', 'repeats every +' + thr('extreme_lead_step', 2) + ' runs'],
+    ['Urgency Mode', !!g.urgency, 'lead ' + thr('urgency_run_diff', 6) + '+ and ' + thr('urgency_min_relievers', 2) + '+ relievers',
+      g.urgency ? 'latched, exits below lead ' + thr('urgency_exit_run_diff', 4) : 'hysteresis ' + thr('urgency_run_diff', 6) + ' in / ' + thr('urgency_exit_run_diff', 4) + ' out'],
+    ['Inning Change', !!g.urgency, 'half-inning flip, urgency only',
+      g.urgency ? 'pushing every Top/Bottom' : 'dormant outside urgency'],
+    ['Pitcher Change', l >= bigT, 'new trailing-team reliever', 'silent if the new arm is a position player'],
+    ['Blowout', i >= minI && l >= req, 'position player, inning ' + minI + '+, scaled diff', 'needs ' + req + ' at inning ' + (i || '?')],
+    ['Bullpen Exhausted', rel >= exh, 'position player after ' + exh + '+ relievers',
+      rel >= exh ? 'bypasses inning and run-diff' : rel + ' of ' + exh + ' burned'],
+  ];
+  const interval = (S.status && S.status.poll_interval_seconds) || 30;
+  return '<div class="m-intro" style="padding-top:14px">Seven tiers evaluate this game every ' + esc(interval)
+    + ' seconds. Armed means the gate is already clear.</div>'
+    + rows.map(r => '<div class="m-tier' + (r[1] ? ' armed' : '') + '">'
+      + '<span class="dot"></span><span style="flex:1;min-width:0"><div class="nm">' + esc(r[0]) + '</div>'
+      + '<div class="dt">' + esc(r[2]) + ' &middot; ' + esc(r[3]) + '</div></span>'
+      + '<span class="st">' + (r[1] ? 'ARMED' : 'IDLE') + '</span></div>').join('')
+    + '<div class="m-panel"><div class="m-kick">SUPPRESSION</div><div class="body">'
+    + (g.urgency
+        ? 'Urgency is latched, so Pitcher Change and Inning Change borrow its label instead of firing their own. One push per substitution, never one per matching tier.'
+        : 'No latch active. Big Lead owns leads ' + bigT + '–' + (extT - 1) + ' and hands off to Extreme at ' + extT + ' so the same run never pushes twice.')
+    + '</div></div>';
+}
+function gPitching(g) {
+  return ['away', 'home'].map(side => {
+    const p = pen(g, side);
+    if (!p.length) return '<div class="m-pblock"><div class="m-tl">' + esc(g[side + '_team']).toUpperCase()
+      + '</div><div class="note">No pitchers logged yet.</div></div>';
+    const sp = p[0], t = trailing(g), conceding = t === side;
+    const pulled = p.length > 1;
+    return '<div class="m-pblock"><div class="m-row">'
+      + '<span class="m-tl' + (conceding ? ' conceding' : '') + '">' + esc(String(g[side + '_team']).toUpperCase())
+      +   ' — ' + (conceding ? 'CONCEDING' : 'LEADING') + '</span>'
+      + '<span class="m-stag' + (pulled && conceding ? ' warn' : '') + '">' + (pulled ? 'PULLED' : 'IN GAME') + '</span></div>'
+      + '<div class="nm">' + esc(sp.name) + '</div>'
+      + '<div class="m-grid4">'
+      + [['IP', sp.innings_pitched ?? '—'], ['PITCHES', sp.pitches ?? '—'], ['ARMS AFTER', Math.max(0, p.length - 1)], ['ROLE', 'SP']]
+        .map(c => '<div class="m-cell"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div></div>').join('')
+      + '</div></div>';
+  }).join('');
+}
+function gBullpen(g) {
+  const t = trailing(g);
+  return '<div class="m-intro" style="padding-top:14px">Chronological, starter first. The leading indicator that a position player is coming.</div>'
+    + ['away', 'home'].map(side => {
+      const p = pen(g, side);
+      const pitches = p.reduce((s, x) => s + (x.pitches || 0), 0);
+      return '<div style="margin-top:16px"><div class="m-seclabel">'
+        + '<span class="m-tl' + (t === side ? ' conceding' : '') + '">' + esc(String(g[side + '_team']).toUpperCase()) + '</span>'
+        + '<span class="rt">' + Math.max(0, p.length - 1) + ' relievers &middot; ' + pitches + ' pitches</span></div>'
+        + (p.length ? p.map((x, i) => '<div class="m-arm' + (x.is_current ? ' now' : '') + '">'
+            + '<span class="ix">' + (i === 0 ? 'SP' : i) + '</span>'
+            + '<span class="who"><div class="n">' + esc(x.name) + '</div>'
+            +   '<div class="r">' + (i === 0 ? 'Starter' : 'Reliever') + '</div></span>'
+            + '<span class="ip">' + esc(x.innings_pitched ?? '—') + '</span>'
+            + '<span class="pc">' + esc(x.pitches ?? '—') + '</span>'
+            + '<span class="nw">' + (x.is_current ? 'NOW' : '') + '</span></div>').join('')
+          : '<div class="m-empty"><div class="a">No pitchers logged yet.</div></div>')
+        + '</div>';
+    }).join('');
+}
+function gLadder(g) {
+  const t = trailing(g);
+  if (!g.odds || !t) {
+    return '<div class="m-empty" style="border-top:0;margin-top:14px"><div class="a">No odds for this matchup</div>'
+      + '<div class="b">The book may not post it, or the snapshot has not refreshed.</div></div>';
+  }
+  const side = t === 'home' ? 'away' : 'home';
+  const raw = g.odds['spreads_' + side] || [];
+  const rows = ladderFor(g, side);
+  const best = rows[0];
+  const o = g.odds;
+  return '<div style="padding:14px 18px 0"><div class="m-row">'
+    + '<span class="m-kick">RUN LINE LADDER &middot; ' + esc(String(g[side + '_team']).toUpperCase()) + '</span>'
+    + '<span style="font-size:10.5px;color:var(--n-tx5)">' + esc(o.book_title || o.book || '') + '</span></div>'
+    + '<div style="font-size:11px;color:var(--n-tx4);margin-top:7px;text-wrap:pretty">'
+    +   'Filtered to the favored side, rungs outside ±600 dropped, sorted by point.</div></div>'
+    + (rows.length ? rows.map((r, i) => {
+        const isBest = i === 0, plus = r.price > 0;
+        const w = Math.min(100, Math.abs(r.price) / 600 * 100);
+        return '<div class="m-lad' + (isBest ? ' best' : '') + '">'
+          + '<span class="pt">' + fmtPoint(r.point) + '</span>'
+          + '<span class="m-track t4"><span class="m-fill ' + (isBest ? 'best' : (plus ? 'plus' : 'minus'))
+          +   '" style="display:block;width:' + w + '%"></span></span>'
+          + '<span class="pr' + (plus ? ' plus' : '') + '">' + fmtPrice(r.price) + '</span></div>';
+      }).join('')
+      : '<div class="m-empty"><div class="a">No bettable rungs</div><div class="b">Every rung fell outside ±600.</div></div>')
+    + '<div style="padding:18px 18px 0"><div class="m-kick">MARKET</div><div class="m-grid2" style="margin-top:11px">'
+    + [['MONEYLINE', fmtPrice(o['moneyline_' + side])],
+       ['TOTAL', o.total_point != null ? o.total_point : '—'],
+       ['BEST RUNG', best ? fmtPoint(best.point) + ' ' + fmtPrice(best.price) : '—'],
+       ['RUNGS KEPT', rows.length + ' of ' + raw.length]]
+      .map(c => '<div class="m-cell"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div></div>').join('')
+    + '</div></div>';
+}
+
+/* --- Screen: Alerts --- */
+function screenAlerts() {
+  const chips = ['All', 'Exhausted', 'Blowout'];
+  const list = [...M.alerts].reverse().filter(a => {
+    if (M.tierFilter === 'Exhausted') return a.tier === 'bullpen_exhausted';
+    if (M.tierFilter === 'Blowout') return a.tier === 'blowout';
+    return true;
+  });
+  const weekAgo = Date.now() - 7 * 864e5;
+  const thisWeek = M.alerts.filter(a => Date.parse(a.timestamp) > weekAgo).length;
+  let out = mHeader('Alerts', thisWeek + ' this week');
+  out += '<div class="m-chips" style="padding-top:2px">'
+    + chips.map(c => '<button class="m-chip' + (M.tierFilter === c ? ' on' : '') + '" data-mtc="' + esc(c) + '">' + esc(c) + '</button>').join('')
+    + '</div>';
+  if (!list.length) {
+    out += '<div class="m-empty"><div class="a">No alerts yet</div>'
+      + '<div class="b">A position player pitching in a blowout is a rare event by design.</div></div>';
+  }
+  out += list.map(a => {
+    const k = alertKey(a), oc = M.outcomes[k];
+    const o = a.odds_at_alert;
+    let cap = '—';
+    if (o) {
+      // alerts_log uses spread_away / ml_away — NOT the snapshot's spreads_away.
+      const side = a.bet_team === o.home_team ? 'home' : 'away';
+      const s = o['spread_' + side], sp = o['spread_' + side + '_price'];
+      if (s != null) cap = nick(a.bet_team) + ' ' + fmtPoint(s) + ' ' + fmtPrice(sp);
+    }
+    const when = new Date(Date.parse(a.timestamp));
+    return '<div class="m-alert m-tap" data-mak="' + esc(k) + '" tabindex="0" role="button">'
+      + '<div class="m-row"><span class="m-badge' + (a.tier === 'bullpen_exhausted' ? ' ex' : '') + '">'
+      +   esc(String(a.tier || 'blowout').replace(/_/g, ' ').toUpperCase()) + '</span>'
+      +   '<span class="ts">' + esc(when.toLocaleDateString([], { month: 'short', day: 'numeric' })
+          + ', ' + when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</span></div>'
+      + '<div class="hl">' + esc(a.player_name) + ' pitched the ' + esc(a.inning) + 'th for the '
+      +   esc(nick(a.conceding_team)) + '</div>'
+      + '<div class="l3"><span>' + esc(a.conceding_team_runs) + MINUS + esc(a.bet_team_runs)
+      +   ', +' + esc(a.run_diff) + '</span><span>' + esc(cap) + '</span>'
+      +   '<span class="m-out' + (oc ? ' ' + oc.toLowerCase() : '') + '">' + esc(oc || 'UNMARKED') + '</span></div>'
+      + '</div>';
+  }).join('');
+  out += '<div style="margin:16px 18px 0;font-size:11px;color:var(--n-tx5);text-wrap:pretty">'
+    + 'Outcomes are marked by hand. The bot records the line at alert time and never looks again — post-alert movement is not tracked yet.</div>';
+  return out;
+}
+
+/* --- Screen: Signal detail --- */
+function screenSignal() {
+  const a = M.alerts.find(x => alertKey(x) === M.alertKey);
+  if (!a) { M.screen = 'alerts'; return screenAlerts(); }
+  const o = a.odds_at_alert || {};
+  const side = a.bet_team === o.home_team ? 'home' : 'away';
+  const k = alertKey(a), oc = M.outcomes[k];
+  const exhausted = a.tier === 'bullpen_exhausted';
+  const checks = [
+    ['Position player on the mound',
+     esc(a.player_name) + ' appears in the pitchers list; listed position is not P or TWP'],
+    [exhausted ? esc(a.prior_relievers_used) + ' prior relievers burned' : 'Inning ' + esc(a.inning) + ', at or past the 5th',
+     exhausted ? '4+ required — this tier bypasses inning and run-diff entirely' : 'Ordinary blowout tier floor is inning 5'],
+    ['Run differential ' + esc(a.run_diff),
+     exhausted ? 'Not required by this tier, recorded anyway' : 'Requirement at inning ' + esc(a.inning) + ': ' + requiredDiff(a.inning)],
+    ['Not already alerted', 'Player absent from state.json — one push per player, per game'],
+  ];
+  const when = new Date(Date.parse(a.timestamp));
+  return '<div class="m-shead">'
+    + '<button class="m-back" id="m-back"><svg viewBox="0 0 13 16"><path d="M9.5 3.5 5 8l4.5 4.5"/></svg>Alerts</button>'
+    + '<div class="m-row" style="margin-top:10px;justify-content:flex-start;gap:7px">'
+    +   '<span class="m-badge' + (exhausted ? ' ex' : '') + '">' + esc(String(a.tier).replace(/_/g, ' ').toUpperCase()) + '</span>'
+    +   '<span style="font-size:11px;color:var(--n-tx4)">' + esc(when.toLocaleString()) + '</span></div>'
+    + '<div style="font-size:24px;line-height:1.14;letter-spacing:-.02em;font-weight:500;margin-top:11px">'
+    +   esc(nick(a.bet_team)) + ' ' + esc(a.bet_team_runs) + ', ' + esc(nick(a.conceding_team)) + ' ' + esc(a.conceding_team_runs) + '</div></div>'
+    + '<div class="m-pcard"><div class="m-kick2" style="color:#8f86bf">THE PLAYER WHO CONCEDED IT</div>'
+    +   '<div class="n">' + esc(a.player_name) + '</div>'
+    +   '<div class="m">' + esc(a.player_position) + ' &middot; ' + esc(nick(a.conceding_team)) + '</div></div>'
+    + '<div class="m-sec"><div class="m-kick">WHY IT FIRED</div><div style="margin-top:11px">'
+    +   checks.map(c => '<div class="m-check"><span class="m-box">'
+        + '<svg viewBox="0 0 10 10"><path d="M1.6 5.3 3.9 7.6 8.4 2.6"/></svg></span>'
+        + '<span><div class="lb">' + c[0] + '</div><div class="dt">' + c[1] + '</div></span></div>').join('')
+    + '</div></div>'
+    + '<div class="m-sec"><div class="m-kick">LINE CAPTURED AT ALERT</div><div class="m-grid2" style="margin-top:11px">'
+    + [['BOOK', o.book_title || '—'],
+       ['SPREAD AT ALERT', o['spread_' + side] != null ? fmtPoint(o['spread_' + side]) : '—'],
+       ['PRICE', fmtPrice(o['spread_' + side + '_price'])],
+       ['MONEYLINE', fmtPrice(o['ml_' + side])]]
+      .map(c => '<div class="m-cell"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div></div>').join('')
+    + '</div></div>'
+    + '<div class="m-panel" style="margin-top:20px"><div class="m-row">'
+    +   '<span class="m-kick">OUTCOME</span>'
+    +   '<span class="m-out' + (oc ? ' ' + oc.toLowerCase() : '') + '">' + esc(oc || 'UNMARKED') + '</span></div>'
+    + '<div class="m-seg">' + ['WON', 'LOST', 'PUSH'].map(x =>
+        '<button class="' + (oc === x ? 'on' : '') + '" data-moc="' + x + '">' + x[0] + x.slice(1).toLowerCase() + '</button>').join('') + '</div>'
+    + '<div style="font-size:10.5px;color:var(--n-tx5);margin-top:9px">Marked by hand. There is no automatic settlement yet.</div></div>';
+}
+
+/* --- Screen: Track record --- */
+function screenRecord() {
+  const st = S.status;
+  const marked = M.alerts.map(a => M.outcomes[alertKey(a)]).filter(Boolean);
+  const w = marked.filter(x => x === 'WON').length, l = marked.filter(x => x === 'LOST').length;
+  const byTier = {};
+  M.alerts.forEach(a => {
+    const t = a.tier || 'blowout';
+    byTier[t] = byTier[t] || { w: 0, l: 0, n: 0 };
+    byTier[t].n++;
+    const o = M.outcomes[alertKey(a)];
+    if (o === 'WON') byTier[t].w++; else if (o === 'LOST') byTier[t].l++;
+  });
+  const months = {};
+  M.alerts.forEach(a => {
+    const d = new Date(Date.parse(a.timestamp));
+    if (!isFinite(d)) return;
+    const k = d.toLocaleDateString([], { month: 'short' });
+    months[k] = (months[k] || 0) + 1;
+  });
+  const maxM = Math.max(1, ...Object.values(months));
+  const ramp = ['#3f424d', '#5d5294', '#796cbf', '#9184d9'];
+  const rules = [
+    ['Big Lead Watch', 'lead ' + thr('big_lead_threshold', 6) + '+, any inning, repeats every +' + thr('big_lead_step', 3), 'DEFAULT'],
+    ['Extreme Lead', 'lead ' + thr('extreme_lead_threshold', 10) + '+, repeats every +' + thr('extreme_lead_step', 2), 'URGENT'],
+    ['Urgency Mode', 'lead ' + thr('urgency_run_diff', 6) + '+ and ' + thr('urgency_min_relievers', 2) + '+ relievers, exits below ' + thr('urgency_exit_run_diff', 4), 'URGENT'],
+    ['Inning Change', 'half-inning flip, urgency only', 'HIGH'],
+    ['Pitcher Change', 'new trailing-team reliever once flagged', 'URGENT'],
+    ['Blowout', 'position player, inning ' + thr('min_inning', 5) + '+, ' + thr('run_diff_mid', 6) + '/' + thr('run_diff_late', 4) + ' scaled diff', 'HIGH'],
+    ['Bullpen Exhausted', 'position player after ' + thr('bullpen_exhaustion_count', 4) + '+ relievers', 'URGENT'],
+  ];
+  let out = mHeader('Track record', '2026 season');
+  out += '<div class="m-hero"><div class="m-kick2">HAND-MARKED, 2026 SEASON</div>'
+    + '<div style="margin-top:10px;display:flex;align-items:flex-end;gap:12px">'
+    + '<span class="big">' + w + MINUS + l + '</span>'
+    + '<span class="side"><div class="a">' + (marked.length ? (w - l >= 0 ? '+' : '') + (w - l) + 'u net' : 'nothing marked') + '</div>'
+    +   '<div class="b">' + marked.length + ' of ' + M.alerts.length + ' fires marked</div></span></div></div>';
+  out += '<div class="m-unval"><div class="m-kick" style="color:var(--n-ac400)">UNVALIDATED</div><div class="body">'
+    + 'No backtest exists. ' + M.alerts.length + ' fire' + (M.alerts.length === 1 ? '' : 's')
+    + ' is a sample, not an edge. Treat every alert as a research signal until post-alert line movement is tracked.</div></div>';
+  if (Object.keys(byTier).length) {
+    out += '<div class="m-sec"><div class="m-kick">BY TIER</div><div style="margin-top:11px">'
+      + Object.entries(byTier).map(([t, v]) => {
+        const tot = Math.max(1, v.w + v.l);
+        return '<div style="margin-bottom:14px"><div class="m-row" style="font-size:12.5px">'
+          + '<span>' + esc(t.replace(/_/g, ' ')) + '</span><span style="color:var(--n-tx2)">' + v.w + MINUS + v.l + '</span></div>'
+          + '<div class="m-split"><span class="w" style="width:' + (v.w / tot * 100) + '%"></span>'
+          +   '<span class="l" style="width:' + (v.l / tot * 100) + '%"></span></div>'
+          + '<div style="font-size:10.5px;color:var(--n-tx4);margin-top:5px">' + v.n + ' fire' + (v.n === 1 ? '' : 's') + ' recorded</div></div>';
+      }).join('') + '</div></div>';
+  }
+  if (Object.keys(months).length) {
+    out += '<div class="m-sec"><div class="m-kick">FIRES BY MONTH</div><div class="m-bars">'
+      + Object.entries(months).map(([k, n]) => {
+        const pctH = Math.max(6, n / maxM * 100);
+        const c = ramp[Math.min(ramp.length - 1, Math.floor(n / maxM * ramp.length))];
+        return '<div class="col"><div class="bar" style="height:' + pctH + '%;background:' + c + '"></div>'
+          + '<div class="lb">' + esc(k) + '</div></div>';
+      }).join('') + '</div></div>';
+  }
+  out += '<div class="m-sec"><div class="m-kick">ACTIVE RULES</div><div style="margin-top:11px">'
+    + rules.map((r, i) => '<div class="m-rule"><span class="d" style="background:' + ramp[Math.min(3, Math.floor(i / 2))] + '"></span>'
+      + '<span style="flex:1;min-width:0"><div class="n">' + esc(r[0]) + '</div><div class="r">' + esc(r[1]) + '</div></span>'
+      + '<span class="p">' + esc(r[2]) + '</span></div>').join('')
+    + '</div></div>';
+  return out;
+}
+
+/* --- tab bar + mount --- */
+const NAVS = [
+  ['slate', 'Slate', 'M3 5h14M3 10h14M3 15h9'],
+  ['live', 'Live', 'M2 12l3.5-6 3 4 2.5-5 3 7 4-4'],
+  ['alerts', 'Alerts', 'M10 3a4.6 4.6 0 0 0-4.6 4.6c0 3.6-1.6 4.7-1.6 4.7h12.4s-1.6-1.1-1.6-4.7A4.6 4.6 0 0 0 10 3zM8.3 15.4a1.9 1.9 0 0 0 3.4 0'],
+  ['record', 'Record', 'M4 16V9m4 7V4m4 12v-5m4 5V7'],
+];
+function renderMobile() {
+  if (!document.body.classList.contains('mobile')) return;
+  const scr = document.getElementById('m-screen');
+  const nav = document.getElementById('m-tab');
+  const active = (M.screen === 'game') ? 'slate' : (M.screen === 'signal' ? 'alerts' : M.screen);
+
+  if (M.screen === 'slate') scr.innerHTML = screenSlate();
+  else if (M.screen === 'live') scr.innerHTML = screenLive();
+  else if (M.screen === 'alerts') scr.innerHTML = screenAlerts();
+  else if (M.screen === 'record') scr.innerHTML = screenRecord();
+  else if (M.screen === 'game') scr.innerHTML = screenGame();
+  else if (M.screen === 'signal') scr.innerHTML = screenSignal();
+
+  nav.innerHTML = NAVS.map(n => '<button class="' + (active === n[0] ? 'on' : '') + '" data-nav="' + n[0] + '">'
+    + svgIcon(n[2]) + '<span>' + esc(n[1]) + '</span></button>').join('');
+
+  // wiring
+  nav.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => {
+    M.screen = b.dataset.nav; M.gameId = null; M.alertKey = null; renderMobile();
+    window.scrollTo(0, 0);
+  });
+  scr.querySelectorAll('[data-mpk]').forEach(el => {
+    const go = () => { M.gameId = el.dataset.mpk; M.screen = 'game'; M.tab = 'overview'; renderMobile(); window.scrollTo(0, 0); };
+    el.onclick = go;
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
+  scr.querySelectorAll('[data-mak]').forEach(el => {
+    const go = () => { M.alertKey = el.dataset.mak; M.screen = 'signal'; renderMobile(); window.scrollTo(0, 0); };
+    el.onclick = go;
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
+  scr.querySelectorAll('[data-mc]').forEach(b => b.onclick = () => { M.filter = b.dataset.mc; renderMobile(); });
+  scr.querySelectorAll('[data-mtc]').forEach(b => b.onclick = () => { M.tierFilter = b.dataset.mtc; renderMobile(); });
+  scr.querySelectorAll('[data-mt]').forEach(b => b.onclick = () => { M.tab = b.dataset.mt; renderMobile(); });
+  scr.querySelectorAll('[data-moc]').forEach(b => b.onclick = () => {
+    const cur = M.outcomes[M.alertKey];
+    if (cur === b.dataset.moc) delete M.outcomes[M.alertKey]; else M.outcomes[M.alertKey] = b.dataset.moc;
+    saveOutcomes(); renderMobile();
+  });
+  const sortBtn = document.getElementById('m-sortbtn');
+  if (sortBtn) sortBtn.onclick = () => {
+    const order = ['Lead', 'Inning', 'Bullpen'];
+    M.sort = order[(order.indexOf(M.sort) + 1) % order.length];
+    renderMobile();
+  };
+  const back = document.getElementById('m-back');
+  if (back) back.onclick = () => {
+    M.screen = (M.screen === 'signal') ? 'alerts' : 'slate';
+    renderMobile(); window.scrollTo(0, 0);
+  };
+  const force = document.getElementById('m-force');
+  if (force) force.onclick = () => refresh(true);
+}
+
+// Idempotent: only touches the DOM when the breakpoint actually crosses, so it
+// is safe to call on a timer as well as on events.
+let _lastMob = null;
+function applyViewport() {
+  const mob = MQ.matches;
+  if (mob === _lastMob) return;
+  _lastMob = mob;
+  document.body.classList.toggle('mobile', mob);
+  document.getElementById('m-root').hidden = !mob;
+  document.getElementById('desk-root').hidden = mob;
+  if (mob) renderMobile();
+}
+// matchMedia change is the right signal, but it does not fire reliably under
+// devtools/CDP viewport emulation. window.resize always does, so listen to both
+// and let applyViewport be idempotent.
+if (MQ.addEventListener) MQ.addEventListener('change', applyViewport); else MQ.addListener(applyViewport);
+window.addEventListener('resize', applyViewport);
+window.addEventListener('orientationchange', applyViewport);
+
+// Freshness counter ticks every second — stale data on a betting dashboard is
+// worse than no data, so the age display must never go quiet. The same tick
+// re-checks the breakpoint, so the layout self-corrects even in environments
+// where neither the matchMedia change nor the resize event fires.
+setInterval(() => {
+  applyViewport();
+  if (document.body.classList.contains('mobile') && !M.polling) renderMobile();
+}, 1000);
+
+M.outcomes = loadOutcomes();
+applyViewport();
+
 refresh();
 setInterval(refresh, REFRESH_MS);
 </script>
