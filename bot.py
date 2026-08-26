@@ -76,6 +76,25 @@ BIG_LEAD_STEP = int(os.environ.get("BIG_LEAD_STEP", "3"))
 EXTREME_LEAD_THRESHOLD = int(os.environ.get("EXTREME_LEAD_THRESHOLD", "10"))
 EXTREME_LEAD_STEP = int(os.environ.get("EXTREME_LEAD_STEP", "2"))
 
+# --- Urgency mode ---
+# A per-game latched state, not a one-shot alert. A game enters urgency mode
+# when the lead is URGENCY_RUN_DIFF+ AND the trailing team has already burned
+# URGENCY_MIN_RELIEVERS+ relievers -- i.e. the concession is plausibly already
+# underway. While a game is in this mode, EVERY half-inning change and EVERY
+# pitcher change for the trailing team pushes a notification, so the position
+# player move can't slip by unseen.
+#
+# Exit uses hysteresis (URGENCY_EXIT_RUN_DIFF < URGENCY_RUN_DIFF) so a game
+# hovering around the entry threshold doesn't flap in and out of the mode.
+URGENCY_RUN_DIFF = int(os.environ.get("URGENCY_RUN_DIFF", "6"))
+URGENCY_MIN_RELIEVERS = int(os.environ.get("URGENCY_MIN_RELIEVERS", "2"))
+URGENCY_EXIT_RUN_DIFF = int(os.environ.get("URGENCY_EXIT_RUN_DIFF", "4"))
+
+# In-memory only: last (inning, half) seen per game, for half-inning change
+# detection. After a restart the baseline is re-seeded without firing, same
+# pattern as _last_pitcher_count.
+_last_half_inning = {}
+
 # In-memory only (not persisted across restarts): last known pitcher-used
 # count per (game_pk, trailing_side), used to detect a fresh substitution.
 _last_pitcher_count = {}
@@ -114,6 +133,161 @@ def _extreme_lead_bucket(lead):
     if lead < EXTREME_LEAD_THRESHOLD:
         return None
     return EXTREME_LEAD_THRESHOLD + EXTREME_LEAD_STEP * ((lead - EXTREME_LEAD_THRESHOLD) // EXTREME_LEAD_STEP)
+
+
+def _trailing_side(linescore):
+    """Which side is losing right now, or None if tied."""
+    home_runs = linescore.get("home", 0)
+    away_runs = linescore.get("away", 0)
+    if home_runs == away_runs:
+        return None
+    return "away" if home_runs > away_runs else "home"
+
+
+def _relievers_used(boxscore, side):
+    """Relievers a side has gone to, excluding the starter."""
+    return max(0, mlb_api.count_pitchers_used(boxscore, side) - 1)
+
+
+def _in_urgency(game_pk, alerted):
+    return f"urgency:{game_pk}" in alerted
+
+
+def _bullpen_state_line(boxscore, side):
+    """One-line summary of a side's current pitching situation: who's on the
+    mound, their line, and how deep into the bullpen the team already is.
+    Shared by every urgency-mode notification so each ping is self-contained."""
+    pen = mlb_api.get_bullpen_detail(boxscore, side)
+    if not pen:
+        return None
+    current = pen[-1]
+    bits = [current["name"]]
+    if current.get("innings_pitched") is not None:
+        bits.append(f"{current['innings_pitched']} IP")
+    if current.get("pitches") is not None:
+        bits.append(f"{current['pitches']} pitches")
+    return f"On the mound: {' - '.join(bits)} ({max(0, len(pen) - 1)} reliever(s) used)"
+
+
+def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+    """Latch a game into (or out of) urgency mode and announce the transition.
+
+    Entry: lead >= URGENCY_RUN_DIFF AND the trailing team has already used
+    URGENCY_MIN_RELIEVERS+ relievers. Exit: lead falls below
+    URGENCY_EXIT_RUN_DIFF (hysteresis gap prevents flapping).
+
+    Entry state is stored in the persisted `alerted` set so a bot restart
+    mid-game doesn't re-announce a mode the game is already in.
+
+    Returns True only on the poll that enters the mode. The entry message
+    already names the incoming pitcher, so check_pitcher_change() uses this
+    to skip its own push for the same substitution."""
+    trailing = _trailing_side(linescore)
+    already_in = _in_urgency(game_pk, alerted)
+    key = f"urgency:{game_pk}"
+
+    if trailing is None:
+        # Tied. Only meaningful if we were previously in the mode.
+        if already_in:
+            alerted.discard(key)
+            notifier.send_alert(
+                "Urgency Mode Off",
+                f"{linescore['away_name']} {linescore['away']} - "
+                f"{linescore['home_name']} {linescore['home']}\n\n"
+                "Game is tied. No longer tracking every inning/pitcher change.",
+                priority="default",
+                tags="mute",
+            )
+        return
+
+    leading = "home" if trailing == "away" else "away"
+    lead = abs(linescore["home"] - linescore["away"])
+    relievers = _relievers_used(boxscore, trailing)
+    leading_team = linescore[f"{leading}_name"]
+    trailing_team = linescore[f"{trailing}_name"]
+
+    if already_in:
+        if lead < URGENCY_EXIT_RUN_DIFF:
+            alerted.discard(key)
+            notifier.send_alert(
+                "Urgency Mode Off",
+                f"{leading_team} {linescore[leading]} - {trailing_team} {linescore[trailing]}\n\n"
+                f"Lead is back down to {lead}. No longer tracking every inning/pitcher change.",
+                priority="default",
+                tags="mute",
+            )
+        return
+
+    if lead < URGENCY_RUN_DIFF or relievers < URGENCY_MIN_RELIEVERS:
+        return
+
+    alerted.add(key)
+    inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
+    parts = [
+        f"URGENCY MODE: {leading_team} by {lead}, {trailing_team} bullpen is going.",
+        f"{leading_team} {linescore[leading]} - {trailing_team} {linescore[trailing]}",
+        inning_line,
+        "",
+        f"{trailing_team} has used {relievers} reliever(s).",
+    ]
+    pen_line = _bullpen_state_line(boxscore, trailing)
+    if pen_line:
+        parts.append(pen_line)
+    parts.append("")
+    parts.append("Now pinging on EVERY half-inning and EVERY pitcher change in this game.")
+
+    notifier.send_alert(
+        "Urgency Mode ON",
+        "\n".join(parts),
+        priority="urgent",
+        tags="rotating_light,stopwatch",
+    )
+    return True
+
+
+def check_inning_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, suppress=False):
+    """Urgency-mode-only: ping on every half-inning transition. Fires on Top
+    and Bottom only -- MLB also reports "Middle"/"End" between halves, which
+    would double the notification volume without adding information."""
+    if inning is None or inning_state not in ("Top", "Bottom"):
+        return
+
+    marker = (inning, inning_state)
+    baseline = _last_half_inning.get(game_pk)
+    _last_half_inning[game_pk] = marker
+
+    # Unchanged, or first sighting after a restart -- re-seed without firing.
+    if baseline is None or baseline == marker:
+        return
+    if not _in_urgency(game_pk, alerted):
+        return
+    # Mode-entry message already carries the score/inning/bullpen state --
+    # baseline is advanced above, so skipping here costs no future ping.
+    if suppress:
+        return
+
+    trailing = _trailing_side(linescore)
+    if trailing is None:
+        return
+    leading = "home" if trailing == "away" else "away"
+    lead = abs(linescore["home"] - linescore["away"])
+
+    parts = [
+        f"{linescore[f'{leading}_name']} {linescore[leading]} - "
+        f"{linescore[f'{trailing}_name']} {linescore[trailing]} (lead {lead})",
+        _format_inning_line(inning, inning_ordinal, inning_state, outs),
+    ]
+    pen_line = _bullpen_state_line(boxscore, trailing)
+    if pen_line:
+        parts.append("")
+        parts.append(f"{linescore[f'{trailing}_name']} - {pen_line}")
+
+    notifier.send_alert(
+        f"Inning Change - {inning_state} {inning_ordinal or inning}",
+        "\n".join(parts),
+        priority="high",
+        tags="stopwatch",
+    )
 
 
 def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted):
@@ -252,7 +426,7 @@ def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     )
 
 
-def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, suppress=False):
     """Urgent, early-warning tier: once a game has been big-lead-flagged (by
     check_big_lead above), ping on EVERY new pitcher for the trailing team --
     reliever-to-reliever swaps included -- so bullpen churn is visible before
@@ -276,9 +450,19 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
 
     _last_pitcher_count[state_key] = current_count
 
+    # Baseline is advanced above before bailing out, so a suppressed change
+    # doesn't re-fire on the next poll.
+    if suppress:
+        return
+
+    is_urgency_game = _in_urgency(game_pk, alerted)
     is_extreme_game = any(k.startswith(f"extreme:{game_pk}:") for k in alerted)
-    is_big_lead_game = is_extreme_game or any(k.startswith(f"biglead:{game_pk}:") for k in alerted)
-    if not is_big_lead_game:
+    is_armed = (
+        is_urgency_game
+        or is_extreme_game
+        or any(k.startswith(f"biglead:{game_pk}:") for k in alerted)
+    )
+    if not is_armed:
         return
 
     team = boxscore["teams"][trailing_side]
@@ -300,20 +484,30 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
     pitcher_name = new_pitcher.get("person", {}).get("fullName", "New pitcher")
     inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
 
-    header = "EXTREME LEAD - " if is_extreme_game else ""
-    footer = (
-        "Extreme blowout still active -- position player could be next."
-        if is_extreme_game
-        else "Bullpen still churning in this blowout -- watch for a position player next."
-    )
+    # Urgency mode is the explicit "watch this game" state, so it owns the
+    # label when active; extreme is a lead descriptor that still gets noted.
+    if is_urgency_game:
+        title = "Urgency Mode - Pitcher Change"
+        header = "EXTREME LEAD - " if is_extreme_game else "URGENCY - "
+        footer = "Bullpen is emptying -- position player could be next."
+        tags = "rotating_light,stopwatch"
+    elif is_extreme_game:
+        title = "Pitcher Change Alert (Extreme)"
+        header = "EXTREME LEAD - "
+        footer = "Extreme blowout still active -- position player could be next."
+        tags = "rotating_light,fire"
+    else:
+        title = "Pitcher Change Alert"
+        header = ""
+        footer = "Bullpen still churning in this blowout -- watch for a position player next."
+        tags = "warning"
+
     message = (
         f"{header}{leading_team} {linescore[leading_side]} - {trailing_team} {linescore[trailing_side]}\n"
         f"{inning_line}\n\n"
         f"{pitcher_name} is in for {trailing_team} (reliever #{current_count}). "
         f"{footer}"
     )
-    title = "Pitcher Change Alert" + (" (Extreme)" if is_extreme_game else "")
-    tags = "rotating_light,fire" if is_extreme_game else "warning"
     notifier.send_alert(title, message, priority="urgent", tags=tags)
 
 
@@ -369,13 +563,23 @@ def check_game(game_pk, alerted):
     inning_state = detail.get("inning_state")
     outs = detail.get("outs")
 
-    # Order matters: extreme first so its "extreme:" key exists before
-    # check_pitcher_change() decides whether this game is extreme-flagged.
-    # Big-lead runs after extreme and self-suppresses inside extreme
-    # territory so the two tiers can't double-alert on overlapping buckets.
+    # Order matters. Urgency mode latches first so the inning/pitcher checks
+    # below see the current mode state. Extreme runs before big-lead because
+    # big-lead self-suppresses inside extreme territory, keeping the two from
+    # double-alerting on overlapping buckets.
+    entered_urgency = check_urgency_mode(
+        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted
+    )
     check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
     check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    check_inning_change(
+        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
+        suppress=bool(entered_urgency),
+    )
+    check_pitcher_change(
+        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
+        suppress=bool(entered_urgency),
+    )
 
     hits = mlb_api.find_position_players_pitching(boxscore)
     if not hits:
@@ -504,6 +708,9 @@ def _write_status(live_game_count):
                 "big_lead_step": BIG_LEAD_STEP,
                 "extreme_lead_threshold": EXTREME_LEAD_THRESHOLD,
                 "extreme_lead_step": EXTREME_LEAD_STEP,
+                "urgency_run_diff": URGENCY_RUN_DIFF,
+                "urgency_min_relievers": URGENCY_MIN_RELIEVERS,
+                "urgency_exit_run_diff": URGENCY_EXIT_RUN_DIFF,
                 "poll_interval_seconds": POLL_INTERVAL_SECONDS,
             },
             f,
@@ -511,7 +718,7 @@ def _write_status(live_game_count):
         )
 
 
-def _write_live_snapshot(game_pks):
+def _write_live_snapshot(game_pks, alerted=None):
     """For each live game, fetch score/inning/count and match with odds
     (moneyline, totals, run-line ladder). Writes live_snapshot.json for the
     dashboard. Skips the odds API entirely when no games are live to protect
@@ -558,6 +765,7 @@ def _write_live_snapshot(game_pks):
                     "odds": game_odds,
                     "home_bullpen": mlb_api.get_bullpen_detail(box, "home"),
                     "away_bullpen": mlb_api.get_bullpen_detail(box, "away"),
+                    "urgency": bool(alerted) and _in_urgency(pk, alerted),
                 }
             )
         except Exception as e:
@@ -620,7 +828,7 @@ def run_once(alerted):
         except Exception as e:
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
-    snapshot_payload = _write_live_snapshot(game_pks)
+    snapshot_payload = _write_live_snapshot(game_pks, alerted)
     _maybe_send_hourly_summary(snapshot_payload.get("games", []))
 
 
@@ -641,6 +849,9 @@ def notify_startup():
         f"{EXTREME_LEAD_STEP} runs at urgent priority.\n"
         f"Pitcher Change Alert: urgent ping on any new reliever once a game is big-lead "
         f"flagged.\n"
+        f"Urgency Mode: {URGENCY_RUN_DIFF}+ lead AND {URGENCY_MIN_RELIEVERS}+ relievers used "
+        f"-> pings every half-inning and every pitcher change (exits below "
+        f"{URGENCY_EXIT_RUN_DIFF}).\n"
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
     notifier.send_alert(title, message, priority="default", tags="white_check_mark")

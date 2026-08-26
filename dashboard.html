@@ -206,6 +206,24 @@
     padding: 4px 0;
   }
 
+  /* Urgency mode */
+  .game-card.urgency {
+    border-color: var(--bad);
+    box-shadow: 0 0 0 1px rgba(230, 88, 79, 0.35);
+  }
+  .urgency-badge {
+    display: inline-block;
+    background: rgba(230, 88, 79, 0.15);
+    color: var(--bad);
+    border: 1px solid rgba(230, 88, 79, 0.4);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
   /* Bullpen strip */
   .bullpen-block {
     margin-top: 14px;
@@ -443,7 +461,7 @@ function renderGameCard(g) {
   const homeCls = homeWin ? 'winner-score' : (awayWin ? 'loser-score' : '');
 
   return `
-    <div class="game-card">
+    <div class="game-card${g.urgency ? ' urgency' : ''}">
       <div class="game-header">
         <div class="matchup">
           <span class="away">${esc(g.away_team)}</span>
@@ -458,6 +476,7 @@ function renderGameCard(g) {
       </div>
 
       <div class="game-state">
+        ${g.urgency ? '<span class="urgency-badge">Urgency Mode</span>' : ''}
         ${renderInningPill(g)}
         ${renderCountPill(g)}
       </div>
@@ -612,9 +631,12 @@ function renderGames(snapshot) {
     container.innerHTML = '<div class="empty">No live MLB games right now. Cards will appear here automatically once games are in progress.</div>';
     return;
   }
-  // Biggest lead first; re-sorted every refresh so the column re-orders
-  // itself as scores change instead of staying pinned to first-fetch order.
-  const sorted = [...snapshot.games].sort((a, b) => gameLead(b) - gameLead(a));
+  // Urgency-mode games pinned to the top, then biggest lead first. Re-sorted
+  // every refresh so the column re-orders itself as scores change instead of
+  // staying pinned to first-fetch order.
+  const sorted = [...snapshot.games].sort((a, b) =>
+    (b.urgency ? 1 : 0) - (a.urgency ? 1 : 0) || gameLead(b) - gameLead(a)
+  );
   container.innerHTML = sorted.map(renderGameCard).join('');
 }
 
