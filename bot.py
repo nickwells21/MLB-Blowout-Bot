@@ -61,11 +61,153 @@ BULLPEN_EXHAUSTION_COUNT = int(os.environ.get("BULLPEN_EXHAUSTION_COUNT", "4"))
 SUMMARY_INTERVAL_SECONDS = int(os.environ.get("SUMMARY_INTERVAL_SECONDS", "3600"))
 _last_summary_at = time.time()
 
+# Big-lead watch tier: independent of the position-player detection entirely.
+# Fires on run differential alone, any inning, re-alerting every BIG_LEAD_STEP
+# additional runs so growing blowouts keep surfacing. Also arms the
+# pitcher-change tier below for that game.
+BIG_LEAD_THRESHOLD = int(os.environ.get("BIG_LEAD_THRESHOLD", "6"))
+BIG_LEAD_STEP = int(os.environ.get("BIG_LEAD_STEP", "3"))
+
+# In-memory only (not persisted across restarts): last known pitcher-used
+# count per (game_pk, trailing_side), used to detect a fresh substitution.
+_last_pitcher_count = {}
+
 
 def _now_iso():
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat()
+
+
+def _format_inning_line(inning, inning_ordinal, inning_state, outs):
+    if inning_state and inning_ordinal:
+        line = f"{inning_state} {inning_ordinal}"
+    elif inning is not None:
+        line = f"Inning {inning}"
+    else:
+        line = "Inning unknown"
+    if outs is not None:
+        line += f", {outs} out{'s' if outs != 1 else ''}"
+    return line
+
+
+def _lead_bucket(lead):
+    """Largest BIG_LEAD_STEP-aligned milestone at or below `lead`, starting at
+    BIG_LEAD_THRESHOLD. None if the lead hasn't reached the threshold yet.
+    E.g. threshold=6, step=3: lead 6-8 -> 6, lead 9-11 -> 9, lead 12-14 -> 12."""
+    if lead < BIG_LEAD_THRESHOLD:
+        return None
+    return BIG_LEAD_THRESHOLD + BIG_LEAD_STEP * ((lead - BIG_LEAD_THRESHOLD) // BIG_LEAD_STEP)
+
+
+def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+    """Score-only watch tier, completely independent of who's pitching: fires
+    the first time a game's run differential crosses BIG_LEAD_THRESHOLD, and
+    again every BIG_LEAD_STEP runs after that as the lead keeps growing. Also
+    marks the game as "big lead flagged" (via the alerted key itself) so
+    check_pitcher_change() knows to start watching it."""
+    home_runs = linescore.get("home", 0)
+    away_runs = linescore.get("away", 0)
+    lead = abs(home_runs - away_runs)
+    bucket = _lead_bucket(lead)
+    if bucket is None:
+        return
+
+    key = f"biglead:{game_pk}:{bucket}"
+    if key in alerted:
+        return
+    alerted.add(key)
+
+    if home_runs > away_runs:
+        leading_side, trailing_side = "home", "away"
+    else:
+        leading_side, trailing_side = "away", "home"
+    leading_team = linescore[f"{leading_side}_name"]
+    trailing_team = linescore[f"{trailing_side}_name"]
+    leading_runs = linescore[leading_side]
+    trailing_runs = linescore[trailing_side]
+
+    inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
+    message = (
+        f"{leading_team} {leading_runs} - {trailing_team} {trailing_runs}\n"
+        f"{inning_line}\n\n"
+        f"Lead is up to {lead} runs. Worth watching for a bullpen move."
+    )
+
+    try:
+        all_odds = odds.get_cached_or_fetch()
+        if all_odds:
+            match = odds.find_game(all_odds, linescore["home_name"], linescore["away_name"])
+            game_odds = odds.extract_for_book(match, None, odds.BOOK) if match else None
+            if game_odds:
+                ladder = game_odds.get(f"spreads_{leading_side}") or []
+                if ladder:
+                    point = ladder[0]["point"]
+                    price = ladder[0]["price"]
+                    message += (
+                        f"\nCurrent {game_odds.get('book_title', 'book')} line: "
+                        f"{leading_team} {point:+g} ({price:+d})"
+                    )
+    except Exception as e:
+        print(f"[bot] Big-lead odds lookup failed for {game_pk}: {e}")
+
+    notifier.send_alert("Big Lead Watch", message, priority="default", tags="eyes")
+
+
+def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+    """Urgent, early-warning tier: once a game has been big-lead-flagged (by
+    check_big_lead above), ping on EVERY new pitcher for the trailing team --
+    reliever-to-reliever swaps included -- so bullpen churn is visible before
+    the eventual position-player move, not just at the moment it happens. If
+    the new arm IS a position player, this stays quiet and lets the existing
+    Blowout/Bullpen-Exhausted tiers handle it instead, so the same event
+    doesn't fire twice."""
+    home_runs = linescore.get("home", 0)
+    away_runs = linescore.get("away", 0)
+    if home_runs == away_runs:
+        return  # no trailing team to watch
+
+    trailing_side = "away" if home_runs > away_runs else "home"
+    current_count = mlb_api.count_pitchers_used(boxscore, trailing_side)
+    state_key = (game_pk, trailing_side)
+    baseline = _last_pitcher_count.get(state_key)
+
+    if baseline is None or current_count <= baseline:
+        _last_pitcher_count[state_key] = current_count
+        return
+
+    _last_pitcher_count[state_key] = current_count
+
+    is_big_lead_game = any(k.startswith(f"biglead:{game_pk}:") for k in alerted)
+    if not is_big_lead_game:
+        return
+
+    team = boxscore["teams"][trailing_side]
+    pitcher_ids = team.get("pitchers", [])
+    if not pitcher_ids:
+        return
+    new_pitcher = team.get("players", {}).get(f"ID{pitcher_ids[-1]}")
+    if not new_pitcher:
+        return
+    position_abbr = new_pitcher.get("position", {}).get("abbreviation")
+    if position_abbr not in ("P", "TWP"):
+        # A position player just entered -- that's the Blowout/Bullpen-
+        # Exhausted tier's job. Don't double-alert the same event.
+        return
+
+    trailing_team = linescore[f"{trailing_side}_name"]
+    leading_side = "home" if trailing_side == "away" else "away"
+    leading_team = linescore[f"{leading_side}_name"]
+    pitcher_name = new_pitcher.get("person", {}).get("fullName", "New pitcher")
+    inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
+
+    message = (
+        f"{leading_team} {linescore[leading_side]} - {trailing_team} {linescore[trailing_side]}\n"
+        f"{inning_line}\n\n"
+        f"{pitcher_name} is in for {trailing_team} (reliever #{current_count}). "
+        f"Bullpen still churning in this blowout -- watch for a position player next."
+    )
+    notifier.send_alert("Pitcher Change Alert", message, priority="urgent", tags="warning")
 
 
 def required_run_diff_for_inning(inning):
@@ -113,16 +255,19 @@ def _classify(hit, boxscore, linescore, inning):
 
 def check_game(game_pk, alerted):
     boxscore = mlb_api.get_boxscore(game_pk)
-    hits = mlb_api.find_position_players_pitching(boxscore)
-    if not hits:
-        return
-
     linescore = mlb_api.get_linescore(boxscore)
     detail = mlb_api.get_linescore_detail(game_pk)
     inning = detail.get("inning")
     inning_ordinal = detail.get("inning_ordinal")
     inning_state = detail.get("inning_state")
     outs = detail.get("outs")
+
+    check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+
+    hits = mlb_api.find_position_players_pitching(boxscore)
+    if not hits:
+        return
 
     for hit in hits:
         key = f"{game_pk}:{hit['player_id']}"
@@ -149,14 +294,7 @@ def check_game(game_pk, alerted):
             priority = "high"
             tags = "baseball,rotating_light"
 
-        if inning_state and inning_ordinal:
-            inning_line = f"{inning_state} {inning_ordinal}"
-        elif inning is not None:
-            inning_line = f"Inning {inning}"
-        else:
-            inning_line = "Inning unknown"
-        if outs is not None:
-            inning_line += f", {outs} out{'s' if outs != 1 else ''}"
+        inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
 
         description = (
             f"{hit['name']} ({hit['real_position']}) is pitching for {conceding_team}. "
@@ -379,6 +517,10 @@ def notify_startup():
         f"Blowout tier: inning>={MIN_INNING}, {RUN_DIFF_MID}+ runs (innings {MIN_INNING}-6) / "
         f"{RUN_DIFF_LATE}+ runs (7+).\n"
         f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning).\n"
+        f"Big Lead Watch: {BIG_LEAD_THRESHOLD}+ run lead, any inning, re-alerts every "
+        f"{BIG_LEAD_STEP} runs.\n"
+        f"Pitcher Change Alert: urgent ping on any new reliever once a game is big-lead "
+        f"flagged.\n"
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
     notifier.send_alert(title, message, priority="default", tags="white_check_mark")
