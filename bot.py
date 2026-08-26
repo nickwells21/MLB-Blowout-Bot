@@ -37,6 +37,11 @@ import odds
 import paths
 import state
 
+try:
+    import schedule
+except ImportError:  # scheduling is optional -- fall back to 24/7 polling
+    schedule = None
+
 BLOWOUT_RUN_DIFF = int(os.environ.get("BLOWOUT_RUN_DIFF", "6"))
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
 
@@ -94,6 +99,29 @@ URGENCY_EXIT_RUN_DIFF = int(os.environ.get("URGENCY_EXIT_RUN_DIFF", "4"))
 # detection. After a restart the baseline is re-seeded without firing, same
 # pattern as _last_pitcher_count.
 _last_half_inning = {}
+
+# --- Game-window scheduling ---
+# The bot used to poll 24/7, which burned API calls and pushed "0 live"
+# summaries all night. Instead it now sleeps outside the day's game window:
+# wake shortly before first pitch, poll every POLL_INTERVAL_SECONDS until
+# every game on the slate is Final, then sleep until tomorrow's first pitch.
+SCHEDULE_ENABLED = os.environ.get("SCHEDULE_ENABLED", "true").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+# Wake this far before first pitch so the first poll lands on a live game
+# rather than arriving late.
+PREGAME_LEAD_SECONDS = int(os.environ.get("PREGAME_LEAD_SECONDS", "300"))
+# While sleeping, still write status.json this often. Without a heartbeat a
+# long sleep would let last_checked go stale and the dashboard would report
+# the bot as dead when it is deliberately idle.
+SLEEP_HEARTBEAT_SECONDS = int(os.environ.get("SLEEP_HEARTBEAT_SECONDS", "60"))
+# How many days ahead to look for the next slate before giving up and
+# re-checking later (covers the All-Star break and the gap before playoffs).
+SCHEDULE_LOOKAHEAD_DAYS = 8
+
+_bot_state = "scanning"
+_next_wake_utc = None
+_current_window = None
 
 # In-memory only (not persisted across restarts): last known pitcher-used
 # count per (game_pk, trailing_side), used to detect a fresh substitution.
@@ -691,6 +719,26 @@ def check_game(game_pk, alerted):
         alerted.add(key)
 
 
+def _iso_or_none(dt):
+    return dt.isoformat() if dt else None
+
+
+def _schedule_block():
+    """The `schedule` object the dashboard reads out of status.json. Returns
+    None when scheduling is off or no window has been computed yet, which the
+    dashboard treats as "hide the state indicator"."""
+    if not _current_window:
+        return None
+    return {
+        "date": _current_window.get("date"),
+        "games_today": _current_window.get("game_count", 0),
+        "games_final": _current_window.get("games_final", 0),
+        "first_pitch": _iso_or_none(_current_window.get("first_pitch_utc")),
+        "last_scheduled_start": _iso_or_none(_current_window.get("last_scheduled_start_utc")),
+        "next_wake": _iso_or_none(_next_wake_utc),
+    }
+
+
 def _write_status(live_game_count):
     import json
 
@@ -699,6 +747,8 @@ def _write_status(live_game_count):
             {
                 "last_checked": _now_iso(),
                 "live_games": live_game_count,
+                "bot_state": _bot_state,
+                "schedule": _schedule_block(),
                 "blowout_run_diff": BLOWOUT_RUN_DIFF,
                 "min_inning": MIN_INNING,
                 "run_diff_mid": RUN_DIFF_MID,
@@ -832,6 +882,230 @@ def run_once(alerted):
     _maybe_send_hourly_summary(snapshot_payload.get("games", []))
 
 
+def _utcnow():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc)
+
+
+def _write_empty_snapshot():
+    """Blank out live_snapshot.json when going to sleep so the dashboard shows
+    an empty slate instead of the last finished games frozen in place."""
+    import json
+
+    try:
+        with open(paths.data_path("live_snapshot.json"), "w") as f:
+            json.dump(
+                {"fetched_at": time.time(), "book": odds.BOOK, "quota": None, "games": []},
+                f,
+                indent=2,
+            )
+    except Exception as e:
+        print(f"[bot] Could not clear live snapshot: {e}")
+
+
+# Real MLB first pitches land roughly 15:00Z (11am ET) through 02:30Z (10:30pm
+# ET next day). Anything starting inside this band is not a real start time --
+# it's a TBD placeholder. The whole postseason is scheduled at 07:33Z with
+# "AL Higher Seed"-style names until matchups are set, and a scheduler that
+# trusted those would wake at 3:33am, find nothing, and sleep through the
+# actual 8pm games.
+PLACEHOLDER_START_HOURS = range(3, 14)  # UTC
+
+
+def _is_placeholder_window(window):
+    first = window.get("first_pitch_utc")
+    return bool(first) and first.hour in PLACEHOLDER_START_HOURS
+
+
+def _next_slate_start(after_date_str):
+    """First pitch of the next day that actually has games, searching forward
+    from the day AFTER after_date_str. Returns (datetime, date_str) or
+    (None, None) if nothing is scheduled within the lookahead."""
+    from datetime import date, timedelta
+
+    start = date.fromisoformat(after_date_str)
+    for offset in range(1, SCHEDULE_LOOKAHEAD_DAYS + 1):
+        day = (start + timedelta(days=offset)).isoformat()
+        try:
+            w = schedule.compute_window(day)
+        except Exception as e:
+            print(f"[bot] Schedule lookahead failed for {day}: {e}")
+            continue
+        if w.get("game_count") and w.get("first_pitch_utc"):
+            if _is_placeholder_window(w):
+                # TBD postseason time -- don't trust it. Wake at 14:00Z
+                # (10am ET), safely ahead of any real first pitch, and let
+                # the placeholder branch in run_scheduled keep us awake.
+                from datetime import datetime, time as _time, timezone
+
+                return (
+                    datetime.combine(
+                        date.fromisoformat(day), _time(14, 0), tzinfo=timezone.utc
+                    ),
+                    day,
+                )
+            return w["first_pitch_utc"], day
+    return None, None
+
+
+def _sleep_until(target_utc, reason):
+    """Idle until target_utc, writing a status heartbeat every
+    SLEEP_HEARTBEAT_SECONDS so the dashboard can tell deliberate sleep apart
+    from a crashed process."""
+    global _bot_state, _next_wake_utc
+
+    _bot_state = "sleeping"
+    _next_wake_utc = target_utc
+    _write_empty_snapshot()
+
+    mins = (target_utc - _utcnow()).total_seconds() / 60
+    print(f"[bot] Sleeping {mins:.0f} min ({reason}). Waking at {target_utc.isoformat()}.")
+
+    while True:
+        remaining = (target_utc - _utcnow()).total_seconds()
+        if remaining <= 0:
+            break
+        _write_status(0)
+        time.sleep(min(SLEEP_HEARTBEAT_SECONDS, remaining))
+
+    _bot_state = "scanning"
+    _next_wake_utc = None
+
+
+def run_scheduled(alerted):
+    """Main loop when SCHEDULE_ENABLED. Sleeps outside the day's game window
+    and polls every POLL_INTERVAL_SECONDS inside it.
+
+    Day boundaries come from the API's `officialDate`, which is Eastern-time
+    based, so a game starting 01:05 UTC still belongs to the previous day's
+    slate and keeps the bot awake rather than being treated as tomorrow."""
+    global _current_window, _bot_state
+
+    from datetime import timedelta
+
+    while True:
+        today = schedule.today_et()
+        try:
+            window = schedule.compute_window(today)
+        except Exception as e:
+            print(f"[bot] Schedule lookup failed ({e}); polling once and retrying.")
+            run_once(alerted)
+            state.save_alerted(alerted)
+            time.sleep(POLL_INTERVAL_SECONDS)
+            continue
+
+        _current_window = window
+        now = _utcnow()
+        first = window.get("first_pitch_utc")
+        backstop = window.get("backstop_utc")
+
+        # Slate is over (or empty) -- sleep to the next day that has games.
+        if not window.get("game_count") or window.get("all_final"):
+            reason = "no games today" if not window.get("game_count") else "slate complete"
+            target, target_day = _next_slate_start(today)
+            if target is None:
+                # Nothing scheduled within the lookahead; re-check in 6 hours.
+                target = now + timedelta(hours=6)
+                reason += ", nothing scheduled ahead"
+            else:
+                target -= timedelta(seconds=PREGAME_LEAD_SECONDS)
+                reason += f", next slate {target_day}"
+            _sleep_until(target, reason)
+            continue
+
+        # Postseason days carry placeholder start times until matchups are
+        # set. Their window is meaningless, so poll straight through the day
+        # rather than risk sleeping past a real game. Costs a day of extra
+        # API calls; never misses a playoff blowout.
+        if _is_placeholder_window(window):
+            _bot_state = "scanning"
+            try:
+                run_once(alerted)
+                state.save_alerted(alerted)
+            except Exception as e:
+                print(f"[bot] Poll error: {e}")
+            time.sleep(POLL_INTERVAL_SECONDS)
+            continue
+
+        # Games today but first pitch hasn't landed yet.
+        if first:
+            wake_at = first - timedelta(seconds=PREGAME_LEAD_SECONDS)
+            if now < wake_at:
+                _sleep_until(wake_at, f"first pitch {first.isoformat()}")
+                continue
+
+        # Games never went Final (suspended/stuck) -- give up on the day.
+        if backstop and now > backstop:
+            target, target_day = _next_slate_start(today)
+            if target is None:
+                target = now + timedelta(hours=6)
+            else:
+                target -= timedelta(seconds=PREGAME_LEAD_SECONDS)
+            _sleep_until(target, f"past backstop, next slate {target_day}")
+            continue
+
+        # Inside the window: normal polling.
+        _bot_state = "scanning"
+        try:
+            run_once(alerted)
+            state.save_alerted(alerted)
+        except Exception as e:
+            print(f"[bot] Poll error: {e}")
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def run_unscheduled(alerted):
+    """Legacy 24/7 loop, used when SCHEDULE_ENABLED is off or schedule.py is
+    unavailable."""
+    while True:
+        try:
+            run_once(alerted)
+            state.save_alerted(alerted)
+        except Exception as e:
+            print(f"[bot] Poll error: {e}")
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _ensure_season_schedule(max_age_hours=24):
+    """Refresh the cached season schedule if it is missing or stale. Purely
+    informational -- the poll loop always asks the live API for the current
+    day -- but it means the deployed instance holds the full remaining season
+    rather than only whatever day it happens to be. One ranged request.
+    Never fatal: a failure here must not stop the bot from watching games."""
+    from datetime import datetime, timezone
+
+    try:
+        existing = schedule.load_season()
+        fetched_at = (existing or {}).get("fetched_at")
+        if fetched_at:
+            # schedule.py writes this as an ISO string, not an epoch float.
+            fetched_dt = datetime.fromisoformat(fetched_at)
+            age_h = (datetime.now(timezone.utc) - fetched_dt).total_seconds() / 3600
+            if age_h < max_age_hours:
+                days = existing.get("days", {})
+                games = sum(d.get("game_count", 0) for d in days.values())
+                print(f"[bot] Season schedule cached ({games} games, {age_h:.1f}h old).")
+                return
+        season = schedule.fetch_season()
+        days = season.get("days", {})
+        games = sum(d.get("game_count", 0) for d in days.values())
+        print(f"[bot] Season schedule refreshed: {games} games across {len(days)} days.")
+    except Exception as e:
+        print(f"[bot] Season schedule refresh failed (non-fatal): {e}")
+
+
+def run_loop(alerted):
+    """Entrypoint shared by bot.py standalone and app.py's background thread."""
+    if SCHEDULE_ENABLED and schedule is not None:
+        _ensure_season_schedule()
+        run_scheduled(alerted)
+    else:
+        why = "SCHEDULE_ENABLED=false" if schedule is not None else "schedule.py unavailable"
+        print(f"[bot] Game-window scheduling off ({why}); polling 24/7.")
+        run_unscheduled(alerted)
+
+
 def notify_startup():
     """Fire a low-key confirmation push every time the bot process starts, so
     activating it (either `python bot.py` or `python app.py`) gives immediate
@@ -854,6 +1128,20 @@ def notify_startup():
         f"{URGENCY_EXIT_RUN_DIFF}).\n"
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
+    if SCHEDULE_ENABLED and schedule is not None:
+        try:
+            w = schedule.compute_window(schedule.today_et())
+            if w.get("game_count"):
+                first = w.get("first_pitch_utc")
+                message += (
+                    f"\n\nToday: {w['game_count']} game(s)."
+                    + (f" First pitch {first.isoformat()}." if first else "")
+                    + " Sleeping outside the window."
+                )
+            else:
+                message += "\n\nNo games today -- sleeping until the next slate."
+        except Exception as e:
+            message += f"\n\nSchedule lookup failed at startup: {e}"
     notifier.send_alert(title, message, priority="default", tags="white_check_mark")
 
 
@@ -867,10 +1155,7 @@ def main():
     notify_startup()
     alerted = state.load_alerted()
     try:
-        while True:
-            run_once(alerted)
-            state.save_alerted(alerted)
-            time.sleep(POLL_INTERVAL_SECONDS)
+        run_loop(alerted)
     except KeyboardInterrupt:
         print("\n[bot] Stopped.")
         state.save_alerted(alerted)

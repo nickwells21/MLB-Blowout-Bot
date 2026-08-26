@@ -63,6 +63,34 @@
     font-weight: 600;
   }
 
+  /* Bot state banner */
+  .bot-state {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+  }
+  .bot-state[hidden] { display: none; }
+  .bot-state.scanning { border-left: 3px solid var(--good); }
+  .bot-state.sleeping { border-left: 3px solid var(--accent); }
+  .bot-state .state-label {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .bot-state.scanning .state-label { color: var(--good); }
+  .bot-state.sleeping .state-label { color: var(--accent); }
+  .bot-state .state-detail {
+    font-size: 13px;
+    color: var(--muted-strong);
+  }
+  .bot-state .state-detail b { color: var(--text); font-weight: 600; }
+
   /* Game cards */
   .games { display: flex; flex-direction: column; gap: 16px; }
   .game-card {
@@ -374,6 +402,7 @@
   }
   .dot.live { background: var(--good); }
   .dot.stale { background: var(--bad); }
+  .dot.sleep { background: var(--accent); }
 
   .empty {
     color: var(--muted);
@@ -391,6 +420,8 @@
     <h1>MLB Blowout Bot</h1>
     <div class="tagline">Position-player-pitching detection &middot; run-line ladder plays &middot; live edge signals</div>
   </div>
+
+  <div id="bot-state" class="bot-state" hidden></div>
 
   <h2>Live Games</h2>
   <div id="games" class="games"></div>
@@ -430,6 +461,39 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
+}
+
+// Schedule times arrive as ISO strings (UTC) and are rendered in the viewer's
+// own timezone. Every field may be missing or null on older status.json files,
+// so each helper returns '' rather than throwing on bad input.
+function localTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function localDayTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const t = localTime(iso);
+  if (d.toDateString() === new Date().toDateString()) return t;
+  return `${d.toLocaleDateString([], { weekday: 'short' })} ${t}`;
+}
+
+function countdown(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return '';
+  const diff = t - Date.now();
+  if (diff <= 0) return 'any moment now';
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'in under a minute';
+  if (m < 60) return `in ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `in ${h}h ${m % 60}m` : `in ${h}h`;
+  return h % 24 ? `in ${Math.floor(h / 24)}d ${h % 24}h` : `in ${Math.floor(h / 24)}d`;
 }
 
 function american(p) {
@@ -625,10 +689,72 @@ function gameLead(g) {
   return Math.abs((g.home_runs ?? 0) - (g.away_runs ?? 0));
 }
 
-function renderGames(snapshot) {
+// The bot only runs during MLB game windows, so an idle dashboard is normal
+// overnight. This banner is the difference between "asleep on purpose" and
+// "crashed". If status.json predates the schedule fields we hide it entirely
+// rather than guess at a state.
+function renderBotState(status) {
+  const el = document.getElementById('bot-state');
+  const state = status && status.bot_state;
+  if (state !== 'scanning' && state !== 'sleeping') {
+    el.hidden = true;
+    el.className = 'bot-state';
+    el.innerHTML = '';
+    return;
+  }
+
+  const sched = (status && status.schedule) || {};
+  const games = sched.games_today;
+  const finals = sched.games_final;
+  const pills = [];
+  let detail = '';
+
+  if (state === 'scanning') {
+    const bits = [];
+    if (games != null) bits.push(`<b>${esc(games)}</b> game${Number(games) === 1 ? '' : 's'} today`);
+    if (finals != null) bits.push(`<b>${esc(finals)}</b> final`);
+    if (bits.length) detail = `&mdash; ${bits.join(', ')}`;
+  } else {
+    const wakeAt = localDayTime(sched.next_wake);
+    const cd = countdown(sched.next_wake);
+    if (wakeAt) {
+      detail = 'until first pitch';
+      if (cd) pills.push(`<span class="state-pill"><b>${esc(cd)}</b></span>`);
+      pills.push(`<span class="state-pill">wakes <b>${esc(wakeAt)}</b></span>`);
+    } else if (games === 0) {
+      detail = '&mdash; no MLB games scheduled today';
+    } else {
+      detail = '&mdash; next wake time not published yet';
+    }
+  }
+
+  el.hidden = false;
+  el.className = `bot-state ${state}`;
+  el.innerHTML = `
+    <span class="dot ${state === 'scanning' ? 'live' : 'sleep'}"></span>
+    <span class="state-label">${state === 'scanning' ? 'Scanning' : 'Sleeping'}</span>
+    ${detail ? `<span class="state-detail">${detail}</span>` : ''}
+    ${pills.join('')}
+  `;
+}
+
+function emptyGamesMessage(status) {
+  const fallback = 'No live MLB games right now. Cards will appear here automatically once games are in progress.';
+  if (!status || status.bot_state !== 'sleeping') return fallback;
+  const sched = status.schedule || {};
+  const wakeAt = localDayTime(sched.next_wake);
+  if (wakeAt) {
+    const cd = countdown(sched.next_wake);
+    return `Bot is sleeping until first pitch at ${esc(wakeAt)}${cd ? ` (${esc(cd)})` : ''}.`;
+  }
+  if (sched.games_today === 0) return 'Bot is sleeping &mdash; no MLB games scheduled today.';
+  return 'Bot is sleeping until the next game window.';
+}
+
+function renderGames(snapshot, status) {
   const container = document.getElementById('games');
   if (!snapshot || !snapshot.games || snapshot.games.length === 0) {
-    container.innerHTML = '<div class="empty">No live MLB games right now. Cards will appear here automatically once games are in progress.</div>';
+    container.innerHTML = `<div class="empty">${emptyGamesMessage(status)}</div>`;
     return;
   }
   // Urgency-mode games pinned to the top, then biggest lead first. Re-sorted
@@ -683,11 +809,15 @@ function renderFooter(status, snapshot) {
   const isLive = status && (Date.now() - new Date(status.last_checked).getTime()) < (status.poll_interval_seconds + 60) * 1000;
   const quota = snapshot && snapshot.quota;
   const snapshotAge = snapshot && snapshot.fetched_at ? timeAgo(snapshot.fetched_at) : '—';
+  // A sleeping bot has an intentionally old last_checked, so don't call it stale.
+  const sleeping = status && status.bot_state === 'sleeping';
+  const sched = (status && status.schedule) || {};
+  const firstPitch = localDayTime(sched.first_pitch);
 
   el.innerHTML = `
     <div class="status-card">
       <div class="label">Bot Status</div>
-      <div class="value"><span class="dot ${isLive ? 'live' : 'stale'}"></span>${isLive ? 'Running' : 'Stale'}</div>
+      <div class="value"><span class="dot ${sleeping ? 'sleep' : (isLive ? 'live' : 'stale')}"></span>${sleeping ? 'Sleeping' : (isLive ? 'Running' : 'Stale')}</div>
     </div>
     <div class="status-card">
       <div class="label">Live Games</div>
@@ -705,6 +835,21 @@ function renderFooter(status, snapshot) {
       <div class="label">Odds Snapshot</div>
       <div class="value">${snapshotAge}</div>
     </div>
+    ${sched.games_today != null ? `
+    <div class="status-card">
+      <div class="label">Games Today</div>
+      <div class="value">${esc(sched.games_today)}</div>
+    </div>` : ''}
+    ${sched.games_final != null ? `
+    <div class="status-card">
+      <div class="label">Games Final</div>
+      <div class="value">${esc(sched.games_final)}</div>
+    </div>` : ''}
+    ${firstPitch ? `
+    <div class="status-card">
+      <div class="label">First Pitch</div>
+      <div class="value">${esc(firstPitch)}</div>
+    </div>` : ''}
     ${quota && quota.remaining != null ? `
     <div class="status-card">
       <div class="label">Odds API Left</div>
@@ -719,7 +864,8 @@ async function refresh() {
     fetchJson('alerts_log.json'),
     fetchJson('live_snapshot.json'),
   ]);
-  renderGames(snapshot);
+  renderBotState(status);
+  renderGames(snapshot, status);
   renderAlerts(alerts);
   renderFooter(status, snapshot);
 }

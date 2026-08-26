@@ -31,17 +31,19 @@ _started_lock = threading.Lock()
 def _run_bot_loop():
     print(
         f"[app] Background bot loop starting. Blowout threshold: "
-        f"{bot.BLOWOUT_RUN_DIFF} runs, polling every {bot.POLL_INTERVAL_SECONDS}s."
+        f"{bot.BLOWOUT_RUN_DIFF} runs, polling every {bot.POLL_INTERVAL_SECONDS}s. "
+        f"Game-window scheduling: {'on' if bot.SCHEDULE_ENABLED else 'off'}."
     )
     bot.notify_startup()
     alerted = state.load_alerted()
+    # run_loop owns its own error handling and sleeping; if it ever escapes,
+    # restart it rather than letting the thread die silently.
     while True:
         try:
-            bot.run_once(alerted)
-            state.save_alerted(alerted)
+            bot.run_loop(alerted)
         except Exception as e:
-            print(f"[app] Bot loop error: {e}")
-        time.sleep(bot.POLL_INTERVAL_SECONDS)
+            print(f"[app] Bot loop crashed, restarting in 30s: {e}")
+            time.sleep(30)
 
 
 def start_bot_thread():
