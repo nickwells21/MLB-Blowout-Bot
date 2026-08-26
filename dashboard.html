@@ -4,417 +4,594 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MLB Blowout Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b0d12;
-    --panel: #141821;
-    --panel-2: #1b2030;
-    --border: #262b36;
-    --border-strong: #333947;
-    --text: #eef1f7;
-    --muted: #8b93a7;
-    --muted-strong: #b0b8cc;
+    --bg: #0a0a0c;
+    --text: #eff1f0;
+    --title: #e8e3dd;
+    --muted: rgba(239, 241, 240, 0.32);
+    --muted-strong: rgba(239, 241, 240, 0.62);
+    --line: rgba(239, 241, 240, 0.10);
+    --line-strong: rgba(239, 241, 240, 0.18);
+    --tile: #131318;
+    --tile-2: #17171d;
     --accent: #f2a71b;
     --good: #2fbf71;
     --bad: #e6584f;
-    --winner: #2fbf71;
-    --loser: #e6584f;
+
+    --serif: "Instrument Serif", "Times New Roman", Times, serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    --radius: 20px;
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: 24px 16px 48px;
-    max-width: 960px;
+    font-family: var(--sans);
+    padding: 0 24px 64px;
+    max-width: 1180px;
     margin-left: auto;
     margin-right: auto;
   }
 
-  /* Hero */
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 0;
+  }
+  .brand {
+    font-family: var(--serif);
+    font-size: 26px;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .brand sup {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-left: 3px;
+    text-transform: uppercase;
+  }
+  .topbar-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.75px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .dot.live { background: var(--good); box-shadow: 0 0 0 3px rgba(47,191,113,0.15); }
+  .dot.stale { background: var(--bad); box-shadow: 0 0 0 3px rgba(230,88,79,0.15); }
+
+  /* ---------- Hero ---------- */
   .hero {
-    text-align: center;
-    padding: 40px 20px 32px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 32px;
+    padding: 44px 0 34px;
+    max-width: 760px;
   }
   .hero h1 {
-    font-size: 44px;
-    margin: 0 0 8px;
-    letter-spacing: -0.02em;
-    background: linear-gradient(90deg, var(--accent), #ff6a3d);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(34px, 5.2vw, 56px);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+    margin: 0;
+    color: var(--text);
   }
-  .hero .tagline {
+  .hero h1 em {
+    font-style: italic;
+    text-decoration: underline;
+    text-underline-offset: 6px;
+    text-decoration-thickness: 1px;
+  }
+  .hero .sub {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: clamp(20px, 3vw, 32px);
+    line-height: 1.15;
     color: var(--muted);
-    font-size: 14px;
-    letter-spacing: 0.02em;
+    margin-top: 2px;
   }
 
-  h2 {
-    font-size: 13px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin: 32px 0 12px;
-    font-weight: 600;
-  }
-
-  /* Game cards */
-  .games { display: flex; flex-direction: column; gap: 16px; }
-  .game-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px 20px;
-  }
-
-  .game-header {
+  /* ---------- Filter bar ---------- */
+  .filterbar {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 14px;
-  }
-  .matchup {
-    font-size: 18px;
-    font-weight: 600;
-  }
-  .matchup .away { color: var(--muted-strong); }
-  .matchup .at { color: var(--muted); margin: 0 6px; font-size: 14px; }
-  .matchup .home { }
-
-  .score {
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-align: right;
-  }
-  .score .winner-score { color: var(--winner); }
-  .score .loser-score { color: var(--loser); }
-  .score .sep { color: var(--muted); margin: 0 6px; font-weight: 400; }
-
-  .game-state {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 20px;
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 16px;
     align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
   }
-  .state-pill {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
+  .pills {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(239, 241, 240, 0.045);
+    border: 1px solid var(--line);
     border-radius: 999px;
-    padding: 3px 10px;
+    padding: 5px;
+    flex-wrap: wrap;
+  }
+  .pill {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-strong);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    padding: 8px 15px;
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .pill:hover { color: var(--text); background: rgba(239,241,240,0.05); }
+  .pill.active { background: var(--text); color: #0a0a0c; }
+  .pill .count {
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: rgba(239,241,240,0.12);
+    color: var(--muted-strong);
+  }
+  .pill.active .count { background: rgba(10,10,12,0.14); color: rgba(10,10,12,0.72); }
+  .sortbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(239, 241, 240, 0.045);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 11px 18px;
+  }
+  .sortbox label {
+    font-size: 13px;
     color: var(--muted-strong);
     font-weight: 500;
   }
-  .state-pill b { color: var(--text); font-weight: 600; }
-
-  /* Two-column bet section */
-  .bets-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .team-col {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-  }
-  .team-col.winner { border-left: 3px solid var(--winner); }
-  .team-col.loser { border-left: 3px solid var(--loser); }
-  .team-col .team-name {
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 4px;
-  }
-  .team-col .team-tag {
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 10px;
-  }
-  .ladder-label {
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin: 6px 0 4px;
-  }
-  .ladder-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    padding: 3px 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .ladder-row .point { color: var(--text); font-weight: 500; }
-  .ladder-row .price { color: var(--muted-strong); }
-
-  .ml-line {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    padding: 6px 0 2px;
-    margin-top: 8px;
-    border-top: 1px solid var(--border);
-    font-variant-numeric: tabular-nums;
-  }
-  .ml-line .price { color: var(--muted-strong); }
-
-  .total-line {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-    font-size: 13px;
-    color: var(--muted-strong);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .total-line b { color: var(--text); }
-  .total-line .over-under {
-    display: flex;
-    gap: 12px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .book-tag {
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-top: 8px;
-  }
-
-  .no-odds {
-    color: var(--muted);
-    font-size: 12px;
-    font-style: italic;
-    padding: 4px 0;
-  }
-
-  /* Urgency mode */
-  .game-card.urgency {
-    border-color: var(--bad);
-    box-shadow: 0 0 0 1px rgba(230, 88, 79, 0.35);
-  }
-  .urgency-badge {
-    display: inline-block;
-    background: rgba(230, 88, 79, 0.15);
-    color: var(--bad);
-    border: 1px solid rgba(230, 88, 79, 0.4);
-    border-radius: 999px;
-    padding: 3px 10px;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  /* Bullpen strip */
-  .bullpen-block {
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-  }
-  .bullpen-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .bullpen-col {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-  }
-  .bullpen-col .bp-team {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
-    font-weight: 600;
-  }
-  .bp-row {
-    display: grid;
-    grid-template-columns: 18px 1fr auto;
-    gap: 8px;
-    align-items: baseline;
-    font-size: 12px;
-    padding: 3px 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .bp-row .bp-idx {
-    color: var(--muted);
-    font-size: 10px;
-    text-align: right;
-  }
-  .bp-row .bp-name {
+  .sortbox select {
+    appearance: none;
+    background: transparent;
+    border: 0;
     color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    padding-right: 2px;
+  }
+  .sortbox select option { background: #17171d; color: var(--text); }
+
+  /* ---------- Game grid ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: 24px;
+    row-gap: 34px;
+  }
+  @media (max-width: 1020px) { .grid { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+  @media (max-width: 760px)  { .grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  @media (max-width: 460px)  { .grid { grid-template-columns: 1fr; } }
+
+  .card { cursor: pointer; }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 6px; }
+
+  /* The "photo" — a live game tile */
+  .tile {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    border-radius: var(--radius);
+    background: var(--tile);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16px;
+    transition: border-color 160ms ease, transform 160ms ease;
+  }
+  .card:hover .tile { border-color: var(--line-strong); transform: translateY(-2px); }
+  /* Lead intensity wash — the bigger the blowout, the hotter the tile */
+  .tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 108%, var(--wash, transparent) 0%, transparent 62%);
+  }
+  .tile > * { position: relative; z-index: 1; }
+
+  .tile-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 20px;
+  }
+  .badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.urgency {
+    background: rgba(230, 88, 79, 0.16);
+    color: #ff8b83;
+    border: 1px solid rgba(230, 88, 79, 0.45);
+  }
+  .badge.lead {
+    background: rgba(239,241,240,0.07);
+    color: var(--muted-strong);
+    border: 1px solid var(--line);
+  }
+
+  .scoreboard { display: flex; flex-direction: column; gap: 10px; }
+  .team-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .team-abbr {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 1.2px;
+    color: var(--muted-strong);
+  }
+  .team-row.lead-team .team-abbr { color: var(--text); }
+  .team-runs {
+    font-family: var(--serif);
+    font-size: 42px;
+    line-height: 0.9;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .team-row.lead-team .team-runs { color: var(--text); }
+
+  .tile-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .pen-chips { display: flex; gap: 3px; align-items: center; }
+  .chip {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: rgba(239,241,240,0.22);
+  }
+  .chip.on { background: var(--accent); }
+
+  /* Card caption — mono meta, serif title, italic serif sub */
+  .meta {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.75px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 14px 0 6px;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .bp-row .bp-stats {
-    color: var(--muted-strong);
-    font-size: 11px;
-    white-space: nowrap;
+  .card-title {
+    font-family: var(--serif);
+    font-size: 28px;
+    line-height: 1.05;
+    font-weight: 400;
+    color: var(--title);
   }
-  .bp-row.bp-current .bp-name { color: var(--accent); font-weight: 600; }
-  .bp-row.bp-current .bp-name::after {
-    content: " ●";
-    color: var(--good);
-    font-size: 10px;
-  }
-  .bp-empty {
-    color: var(--muted);
-    font-size: 11px;
+  .card-sub {
+    font-family: var(--serif);
     font-style: italic;
+    font-size: 20px;
+    line-height: 1.2;
+    color: var(--muted);
+    margin-top: 1px;
   }
 
-  /* Alert history */
-  .alert-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-bottom: 10px;
+  /* ---------- Section headings ---------- */
+  h2.section {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 1.1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    margin: 60px 0 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
   }
-  .alert-card .top-line {
+
+  /* ---------- Alerts ---------- */
+  .alert-card {
+    border-bottom: 1px solid var(--line);
+    padding: 18px 0;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 20px;
+  }
+  .alert-card .a-meta {
+    grid-column: 1 / -1;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.75px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .alert-card .a-title {
+    font-family: var(--serif);
+    font-size: 24px;
+    color: var(--title);
+    line-height: 1.15;
+  }
+  .alert-card .a-time {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.75px;
+    white-space: nowrap;
+  }
+  .alert-card .a-detail {
+    grid-column: 1 / -1;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--muted-strong);
+  }
+  .alert-card .a-detail b { color: var(--text); font-weight: 600; }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    margin-top: 56px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 32px;
+  }
+  .stat .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: var(--muted);
     margin-bottom: 6px;
   }
-  .alert-card .matchup-small {
-    font-weight: 600;
-    font-size: 14px;
+  .stat .value {
+    font-family: var(--serif);
+    font-size: 26px;
+    color: var(--title);
   }
-  .alert-card .time {
-    color: var(--muted);
-    font-size: 11px;
-  }
-  .alert-card .detail {
-    color: var(--muted-strong);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-  .alert-card .detail b { color: var(--text); }
-  .bet-tag {
-    display: inline-block;
-    background: rgba(242, 167, 27, 0.15);
-    color: var(--accent);
-    border-radius: 5px;
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 600;
-    margin-top: 8px;
-  }
-  .alert-odds {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .alert-odds b { color: var(--text); }
-
-  /* Footer bot status */
-  .footer {
-    margin-top: 40px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border);
-  }
-  .footer-cards {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .status-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 16px;
-    min-width: 120px;
-  }
-  .status-card .label {
-    color: var(--muted);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 4px;
-  }
-  .status-card .value {
-    font-size: 15px;
-    font-weight: 600;
-  }
-  .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 6px;
-    vertical-align: middle;
-  }
-  .dot.live { background: var(--good); }
-  .dot.stale { background: var(--bad); }
 
   .empty {
+    grid-column: 1 / -1;
     color: var(--muted);
-    font-size: 13px;
-    padding: 24px;
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 22px;
+    padding: 56px 0;
     text-align: center;
-    background: var(--panel);
-    border: 1px dashed var(--border);
-    border-radius: 8px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
   }
+
+  /* ---------- Detail modal ---------- */
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(6, 6, 8, 0.82);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 50;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .modal.open { display: flex; }
+  .modal-panel {
+    background: var(--tile-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    max-width: 760px;
+    width: 100%;
+    padding: 28px;
+  }
+  .modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 20px;
+  }
+  .modal-head .m-title {
+    font-family: var(--serif);
+    font-size: 34px;
+    line-height: 1.05;
+    color: var(--title);
+  }
+  .modal-head .m-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .close-btn {
+    appearance: none;
+    background: rgba(239,241,240,0.07);
+    border: 1px solid var(--line);
+    color: var(--muted-strong);
+    border-radius: 999px;
+    width: 34px; height: 34px;
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .close-btn:hover { color: var(--text); border-color: var(--line-strong); }
+
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 600px) { .cols2 { grid-template-columns: 1fr; } }
+  .panel {
+    background: rgba(239,241,240,0.028);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .panel-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .panel .p-team {
+    font-family: var(--serif);
+    font-size: 21px;
+    color: var(--title);
+    margin-bottom: 10px;
+    line-height: 1.1;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 0;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-strong);
+  }
+  .row .k { color: var(--text); }
+  .row.sep { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+
+  .bp-row {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 12px;
+    padding: 4px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .bp-row .bp-i { font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: right; }
+  .bp-row .bp-n { color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bp-row .bp-s { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .bp-row.cur .bp-n { color: var(--accent); font-weight: 600; }
+  .bp-row.cur .bp-n::after { content: " ●"; color: var(--good); font-size: 9px; }
+  .none { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 15px; }
 </style>
 </head>
 <body>
-  <div class="hero">
-    <h1>MLB Blowout Bot</h1>
-    <div class="tagline">Position-player-pitching detection &middot; run-line ladder plays &middot; live edge signals</div>
+
+  <div class="topbar">
+    <div class="brand">Blowout Bot<sup>MLB</sup></div>
+    <div class="topbar-status" id="topbar-status"></div>
   </div>
 
-  <h2>Live Games</h2>
-  <div id="games" class="games"></div>
+  <div class="hero">
+    <h1 id="hero-line">Watching the slate for <em>concessions</em>.</h1>
+    <div class="sub" id="hero-sub">Loading live games&hellip;</div>
+  </div>
 
-  <h2>Alert History</h2>
+  <div class="filterbar">
+    <div class="pills" id="pills"></div>
+    <div class="sortbox">
+      <label for="sort">Sort</label>
+      <select id="sort">
+        <option value="lead">Biggest lead</option>
+        <option value="inning">Latest inning</option>
+        <option value="relievers">Deepest bullpen</option>
+        <option value="name">Matchup A&ndash;Z</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid" id="games"></div>
+
+  <h2 class="section">Alert History</h2>
   <div id="alerts"></div>
 
-  <div class="footer">
-    <div class="footer-cards" id="footer-cards"></div>
+  <div class="footer" id="footer"></div>
+
+  <div class="modal" id="modal">
+    <div class="modal-panel" id="modal-panel"></div>
   </div>
 
 <script>
 const REFRESH_MS = 15000;
+
+const ABBR = {
+  "Arizona Diamondbacks":"ARI","Atlanta Braves":"ATL","Baltimore Orioles":"BAL",
+  "Boston Red Sox":"BOS","Chicago White Sox":"CWS","Chicago Cubs":"CHC",
+  "Cincinnati Reds":"CIN","Cleveland Guardians":"CLE","Colorado Rockies":"COL",
+  "Detroit Tigers":"DET","Houston Astros":"HOU","Kansas City Royals":"KC",
+  "Los Angeles Angels":"LAA","Los Angeles Dodgers":"LAD","Miami Marlins":"MIA",
+  "Milwaukee Brewers":"MIL","Minnesota Twins":"MIN","New York Yankees":"NYY",
+  "New York Mets":"NYM","Oakland Athletics":"OAK","Athletics":"ATH",
+  "Philadelphia Phillies":"PHI","Pittsburgh Pirates":"PIT","San Diego Padres":"SD",
+  "San Francisco Giants":"SF","Seattle Mariners":"SEA","St. Louis Cardinals":"STL",
+  "Tampa Bay Rays":"TB","Texas Rangers":"TEX","Toronto Blue Jays":"TOR",
+  "Washington Nationals":"WSH"
+};
+
+let STATE = { games: [], alerts: [], status: null, filter: 'all', sort: 'lead' };
 
 async function fetchJson(path) {
   try {
     const res = await fetch(path + '?_=' + Date.now());
     if (!res.ok) return null;
     return await res.json();
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+function american(p) { return p == null ? '' : (p > 0 ? `+${p}` : `${p}`); }
+function spreadPt(p) { return p == null ? '' : (p > 0 ? `+${p}` : `${p}`); }
+function abbr(name) {
+  if (ABBR[name]) return ABBR[name];
+  const parts = String(name || '').split(' ');
+  return (parts[parts.length - 1] || '???').slice(0, 3).toUpperCase();
+}
 function timeAgo(iso) {
   if (!iso) return '';
   const diff = Date.now() - (typeof iso === 'number' ? iso * 1000 : new Date(iso).getTime());
@@ -426,161 +603,170 @@ function timeAgo(iso) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
+function lead(g) { return Math.abs((g.home_runs ?? 0) - (g.away_runs ?? 0)); }
+function trailingSide(g) {
+  const h = g.home_runs ?? 0, a = g.away_runs ?? 0;
+  if (h === a) return null;
+  return h > a ? 'away' : 'home';
+}
+function relieversUsed(g) {
+  const t = trailingSide(g);
+  if (!t) return 0;
+  const pen = (t === 'home' ? g.home_bullpen : g.away_bullpen) || [];
+  return Math.max(0, pen.length - 1);
+}
+function halfInningLabel(g) {
+  if (!g.inning) return 'Pre-game';
+  const arrow = { Top:'▲', Bottom:'▼', Middle:'·', End:'·' }[g.inning_state] || '·';
+  return `${arrow} ${g.inning_ordinal || g.inning}`;
 }
 
-function american(p) {
-  if (p == null) return '';
-  return p > 0 ? `+${p}` : `${p}`;
-}
+/* ---------- Filters ---------- */
+const FILTERS = [
+  { id:'all',     label:'All',        test: () => true },
+  { id:'urgency', label:'Urgency',    test: g => !!g.urgency },
+  { id:'blowout', label:'Blowouts',   test: g => lead(g) >= 6 },
+  { id:'late',    label:'Late innings', test: g => (g.inning ?? 0) >= 7 },
+  { id:'close',   label:'Close',      test: g => lead(g) <= 2 },
+];
 
-function spreadPt(p) {
-  if (p == null) return '';
-  return p > 0 ? `+${p}` : `${p}`;
-}
-
-function renderInningPill(g) {
-  if (!g.inning) return '';
-  const halfMap = { Top: '▲', Bottom: '▼', Middle: '·', End: '·' };
-  const arrow = halfMap[g.inning_state] || '·';
-  return `<span class="state-pill"><b>${arrow} ${esc(g.inning_ordinal || g.inning)}</b></span>`;
-}
-
-function renderCountPill(g) {
-  if (g.balls == null && g.strikes == null && g.outs == null) return '';
-  return `<span class="state-pill"><b>${g.balls ?? 0}-${g.strikes ?? 0}</b> count &middot; <b>${g.outs ?? 0}</b> out${(g.outs ?? 0) === 1 ? '' : 's'}</span>`;
-}
-
-function renderGameCard(g) {
-  const awayWin = (g.away_runs ?? 0) > (g.home_runs ?? 0);
-  const homeWin = (g.home_runs ?? 0) > (g.away_runs ?? 0);
-  const awayCls = awayWin ? 'winner-score' : (homeWin ? 'loser-score' : '');
-  const homeCls = homeWin ? 'winner-score' : (awayWin ? 'loser-score' : '');
-
-  return `
-    <div class="game-card${g.urgency ? ' urgency' : ''}">
-      <div class="game-header">
-        <div class="matchup">
-          <span class="away">${esc(g.away_team)}</span>
-          <span class="at">@</span>
-          <span class="home">${esc(g.home_team)}</span>
-        </div>
-        <div class="score">
-          <span class="${awayCls}">${g.away_runs ?? 0}</span>
-          <span class="sep">-</span>
-          <span class="${homeCls}">${g.home_runs ?? 0}</span>
-        </div>
-      </div>
-
-      <div class="game-state">
-        ${g.urgency ? '<span class="urgency-badge">Urgency Mode</span>' : ''}
-        ${renderInningPill(g)}
-        ${renderCountPill(g)}
-      </div>
-
-      ${renderBets(g)}
-      ${renderBullpens(g)}
-    </div>
-  `;
-}
-
-function renderBullpens(g) {
-  const away = g.away_bullpen || [];
-  const home = g.home_bullpen || [];
-  if (!away.length && !home.length) return '';
-  return `
-    <div class="bullpen-block">
-      <div class="bullpen-grid">
-        ${renderBullpenCol(g.away_team, away)}
-        ${renderBullpenCol(g.home_team, home)}
-      </div>
-    </div>
-  `;
-}
-
-function renderBullpenCol(team, pen) {
-  if (!pen || !pen.length) {
-    return `
-      <div class="bullpen-col">
-        <div class="bp-team">${esc(team)} bullpen</div>
-        <div class="bp-empty">No pitchers logged yet.</div>
-      </div>
-    `;
-  }
-  const rows = pen.map((p, i) => {
-    const stats = [];
-    if (p.innings_pitched != null) stats.push(`${p.innings_pitched} IP`);
-    if (p.pitches != null) stats.push(`${p.pitches}p`);
-    const rowCls = p.is_current ? 'bp-row bp-current' : 'bp-row';
-    return `
-      <div class="${rowCls}">
-        <span class="bp-idx">${i + 1}.</span>
-        <span class="bp-name">${esc(p.name)}</span>
-        <span class="bp-stats">${stats.join(' · ') || '—'}</span>
-      </div>
-    `;
+function renderPills() {
+  const el = document.getElementById('pills');
+  el.innerHTML = FILTERS.map(f => {
+    const n = STATE.games.filter(f.test).length;
+    const active = STATE.filter === f.id;
+    return `<button class="pill${active ? ' active' : ''}" data-filter="${f.id}">
+      ${esc(f.label)}${n ? `<span class="count">${n}</span>` : ''}
+    </button>`;
   }).join('');
+  el.querySelectorAll('.pill').forEach(b => {
+    b.addEventListener('click', () => { STATE.filter = b.dataset.filter; renderPills(); renderGames(); });
+  });
+}
+
+function sortGames(list) {
+  const s = STATE.sort;
+  const copy = [...list];
+  copy.sort((a, b) => {
+    // Urgency always floats to the top regardless of sort key.
+    const u = (b.urgency ? 1 : 0) - (a.urgency ? 1 : 0);
+    if (u) return u;
+    if (s === 'inning')    return (b.inning ?? 0) - (a.inning ?? 0);
+    if (s === 'relievers') return relieversUsed(b) - relieversUsed(a);
+    if (s === 'name')      return String(a.away_team).localeCompare(String(b.away_team));
+    return lead(b) - lead(a);
+  });
+  return copy;
+}
+
+/* ---------- Game tile ---------- */
+function washFor(g) {
+  const l = lead(g);
+  if (g.urgency)  return 'rgba(230, 88, 79, 0.30)';
+  if (l >= 10)    return 'rgba(230, 88, 79, 0.20)';
+  if (l >= 6)     return 'rgba(242, 167, 27, 0.16)';
+  if (l >= 4)     return 'rgba(242, 167, 27, 0.08)';
+  return 'transparent';
+}
+
+function penChips(g) {
+  const used = relieversUsed(g);
+  const shown = Math.min(used, 6);
+  let s = '';
+  for (let i = 0; i < 6; i++) s += `<span class="chip${i < shown ? ' on' : ''}"></span>`;
+  return s;
+}
+
+function renderTile(g) {
+  const h = g.home_runs ?? 0, a = g.away_runs ?? 0;
+  const homeLeads = h > a, awayLeads = a > h;
+  const l = lead(g);
+  const badge = g.urgency
+    ? `<span class="badge urgency">Urgency</span>`
+    : (l >= 4 ? `<span class="badge lead">Lead ${l}</span>` : '');
+
   return `
-    <div class="bullpen-col">
-      <div class="bp-team">${esc(team)} bullpen (${pen.length})</div>
-      ${rows}
+    <div class="tile" style="--wash:${washFor(g)}">
+      <div class="tile-top">
+        ${badge}
+      </div>
+      <div class="scoreboard">
+        <div class="team-row${awayLeads ? ' lead-team' : ''}">
+          <span class="team-abbr">${esc(abbr(g.away_team))}</span>
+          <span class="team-runs">${a}</span>
+        </div>
+        <div class="team-row${homeLeads ? ' lead-team' : ''}">
+          <span class="team-abbr">${esc(abbr(g.home_team))}</span>
+          <span class="team-runs">${h}</span>
+        </div>
+      </div>
+      <div class="tile-bottom">
+        <span>${esc(halfInningLabel(g))}</span>
+        <span class="pen-chips" title="${relieversUsed(g)} reliever(s) used by trailing team">${penChips(g)}</span>
+      </div>
     </div>
   `;
 }
 
-function renderBets(g) {
+function bestLine(g) {
   const o = g.odds;
-  if (!o) {
-    return `<div class="no-odds">Odds not available for this matchup (book may not offer, or snapshot refresh pending).</div>`;
-  }
+  if (!o) return null;
+  const side = (g.home_runs ?? 0) >= (g.away_runs ?? 0) ? 'home' : 'away';
+  const ladder = o[`spreads_${side}`] || [];
+  if (!ladder.length) return null;
+  return `${spreadPt(ladder[0].point)} (${american(ladder[0].price)})`;
+}
 
-  const homeIsWinner = (g.home_runs ?? 0) > (g.away_runs ?? 0);
-  const awayIsWinner = (g.away_runs ?? 0) > (g.home_runs ?? 0);
+function renderCard(g) {
+  const t = trailingSide(g);
+  const rel = relieversUsed(g);
+  const line = bestLine(g);
+  const metaBits = [
+    g.urgency ? 'URGENCY' : 'LIVE',
+    `LEAD ${lead(g)}`,
+    `${rel} REL`,
+  ];
+  if (line) metaBits.push(line);
 
-  const leftIsWinner = homeIsWinner || (!awayIsWinner);
-  const leftSide = leftIsWinner ? 'home' : 'away';
-  const rightSide = leftIsWinner ? 'away' : 'home';
-
-  const leftTeam = leftSide === 'home' ? o.home_team : o.away_team;
-  const rightTeam = rightSide === 'home' ? o.home_team : o.away_team;
-  const leftLadder = o[`spreads_${leftSide}`] || [];
-  const rightLadder = o[`spreads_${rightSide}`] || [];
-  const leftML = o[`moneyline_${leftSide}`];
-  const rightML = o[`moneyline_${rightSide}`];
-
-  const leftTag = homeIsWinner === (leftSide === 'home') && (homeIsWinner || awayIsWinner) ? 'Leading' : (leftSide === 'home' ? 'Home' : 'Away');
-  const rightTag = homeIsWinner === (rightSide === 'home') && (homeIsWinner || awayIsWinner) ? 'Leading' : (rightSide === 'home' ? 'Home' : 'Away');
-  const leftIsWinnerReal = (leftSide === 'home' && homeIsWinner) || (leftSide === 'away' && awayIsWinner);
-  const rightIsWinnerReal = (rightSide === 'home' && homeIsWinner) || (rightSide === 'away' && awayIsWinner);
-
-  const total = o.total_point;
-  const totalBlock = total != null ? `
-    <div class="total-line">
-      <span>Total: <b>${total}</b></span>
-      <span class="over-under">
-        <span>Over ${american(o.total_over_price)}</span>
-        <span>Under ${american(o.total_under_price)}</span>
-      </span>
-    </div>
-  ` : '';
+  const sub = t
+    ? `${esc(abbr(g[`${t}_team`]))} trailing by ${lead(g)}`
+    : 'Tied';
 
   return `
-    <div class="bets-grid">
-      ${renderTeamCol(leftTeam, leftTag, leftIsWinnerReal, leftLadder, leftML)}
-      ${renderTeamCol(rightTeam, rightTag, rightIsWinnerReal, rightLadder, rightML)}
+    <div class="card" tabindex="0" role="button" data-pk="${esc(g.game_pk)}"
+         aria-label="${esc(g.away_team)} at ${esc(g.home_team)}, open details">
+      ${renderTile(g)}
+      <div class="meta">${metaBits.map(esc).join(' &middot; ')}</div>
+      <div class="card-title">${esc(g.away_team)} @ ${esc(g.home_team)}</div>
+      <div class="card-sub">${sub}</div>
     </div>
-    ${totalBlock}
-    <div class="book-tag">Lines from ${esc(o.book_title || o.book || '')}</div>
   `;
 }
 
+function renderGames() {
+  const container = document.getElementById('games');
+  const f = FILTERS.find(x => x.id === STATE.filter) || FILTERS[0];
+  const list = sortGames(STATE.games.filter(f.test));
+
+  if (!list.length) {
+    container.innerHTML = STATE.games.length
+      ? `<div class="empty">No games match this filter right now.</div>`
+      : `<div class="empty">No live MLB games. Tiles appear here automatically once first pitch lands.</div>`;
+    return;
+  }
+  container.innerHTML = list.map(renderCard).join('');
+  container.querySelectorAll('.card').forEach(c => {
+    const open = () => openModal(c.dataset.pk);
+    c.addEventListener('click', open);
+    c.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+  });
+}
+
+/* ---------- Detail modal ---------- */
 function filterLadder(ladder, ml) {
   if (!ladder || !ladder.length) return [];
-  // Pick the ladder side matching the moneyline sign: dog (+ML) plays +spreads,
-  // favorite (-ML) plays -spreads. Fall back to whichever side is more populated.
   let filtered;
   if (ml != null) {
     filtered = ladder.filter(l => (ml > 0 ? l.point > 0 : l.point < 0));
@@ -589,129 +775,181 @@ function filterLadder(ladder, ml) {
     const neg = ladder.filter(l => l.point < 0);
     filtered = pos.length >= neg.length ? pos : neg;
   }
-  // Drop unrealistic prices (anything worse than -600 or better than +600 is
-  // not a real ladder play — those are lock/no-shot lines).
   filtered = filtered.filter(l => l.price != null && l.price >= -600 && l.price <= 600);
   filtered.sort((a, b) => Math.abs(a.point) - Math.abs(b.point));
   return filtered.slice(0, 8);
 }
 
-function renderTeamCol(name, tag, isWinner, ladder, ml) {
-  const cls = isWinner ? 'winner' : (tag === 'Leading' ? 'loser' : '');
-  const trimmed = filterLadder(ladder, ml);
-  const ladderRows = trimmed.length ? trimmed.map(l => `
-    <div class="ladder-row">
-      <span class="point">${spreadPt(l.point)}</span>
-      <span class="price">${american(l.price)}</span>
-    </div>
-  `).join('') : `<div class="no-odds">No run-line ladder</div>`;
-  const mlRow = ml != null ? `
-    <div class="ml-line">
-      <span>Moneyline</span>
-      <span class="price">${american(ml)}</span>
-    </div>` : '';
+function ladderPanel(g, side) {
+  const o = g.odds;
+  const team = g[`${side}_team`];
+  if (!o) {
+    return `<div class="panel">
+      <div class="p-team">${esc(team)}</div>
+      <div class="none">No odds for this matchup.</div>
+    </div>`;
+  }
+  const ml = o[`moneyline_${side}`];
+  const rows = filterLadder(o[`spreads_${side}`], ml);
+  const body = rows.length
+    ? rows.map(l => `<div class="row"><span class="k">${spreadPt(l.point)}</span><span>${american(l.price)}</span></div>`).join('')
+    : `<div class="none">No run-line ladder.</div>`;
   return `
-    <div class="team-col ${cls}">
-      <div class="team-name">${esc(name)}</div>
-      <div class="team-tag">${tag}</div>
-      <div class="ladder-label">Run Line Ladder</div>
-      ${ladderRows}
-      ${mlRow}
+    <div class="panel">
+      <div class="p-team">${esc(team)}</div>
+      <div class="panel-label">Run line ladder</div>
+      ${body}
+      ${ml != null ? `<div class="row sep"><span>Moneyline</span><span class="k">${american(ml)}</span></div>` : ''}
     </div>
   `;
 }
 
-function gameLead(g) {
-  return Math.abs((g.home_runs ?? 0) - (g.away_runs ?? 0));
+function bullpenPanel(g, side) {
+  const pen = (side === 'home' ? g.home_bullpen : g.away_bullpen) || [];
+  const team = g[`${side}_team`];
+  if (!pen.length) {
+    return `<div class="panel">
+      <div class="p-team">${esc(team)}</div>
+      <div class="none">No pitchers logged yet.</div>
+    </div>`;
+  }
+  const rows = pen.map((p, i) => {
+    const stats = [];
+    if (p.innings_pitched != null) stats.push(`${p.innings_pitched} IP`);
+    if (p.pitches != null) stats.push(`${p.pitches}p`);
+    return `<div class="bp-row${p.is_current ? ' cur' : ''}">
+      <span class="bp-i">${i + 1}</span>
+      <span class="bp-n">${esc(p.name)}</span>
+      <span class="bp-s">${stats.join(' · ') || '—'}</span>
+    </div>`;
+  }).join('');
+  return `
+    <div class="panel">
+      <div class="p-team">${esc(team)}</div>
+      <div class="panel-label">Bullpen order &middot; ${pen.length} used</div>
+      ${rows}
+    </div>
+  `;
 }
 
-function renderGames(snapshot) {
-  const container = document.getElementById('games');
-  if (!snapshot || !snapshot.games || snapshot.games.length === 0) {
-    container.innerHTML = '<div class="empty">No live MLB games right now. Cards will appear here automatically once games are in progress.</div>';
+function openModal(pk) {
+  const g = STATE.games.find(x => String(x.game_pk) === String(pk));
+  if (!g) return;
+  const o = g.odds;
+  const total = o && o.total_point != null
+    ? `<div class="panel" style="margin-top:18px">
+         <div class="panel-label">Game total &middot; ${esc((o && (o.book_title || o.book)) || '')}</div>
+         <div class="row"><span class="k">${o.total_point}</span>
+           <span>O ${american(o.total_over_price)} &nbsp; U ${american(o.total_under_price)}</span></div>
+       </div>`
+    : '';
+
+  document.getElementById('modal-panel').innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="m-title">${esc(g.away_team)} @ ${esc(g.home_team)}</div>
+        <div class="m-sub">${esc(halfInningLabel(g))} &middot; ${g.away_runs ?? 0}&ndash;${g.home_runs ?? 0}
+          &middot; Lead ${lead(g)} &middot; ${g.balls ?? 0}-${g.strikes ?? 0}, ${g.outs ?? 0} out
+          ${g.urgency ? '&middot; URGENCY MODE' : ''}</div>
+      </div>
+      <button class="close-btn" id="close-modal" aria-label="Close">&times;</button>
+    </div>
+    <div class="cols2">
+      ${ladderPanel(g, 'away')}
+      ${ladderPanel(g, 'home')}
+    </div>
+    ${total}
+    <div class="panel-label" style="margin:22px 0 10px">Bullpens</div>
+    <div class="cols2">
+      ${bullpenPanel(g, 'away')}
+      ${bullpenPanel(g, 'home')}
+    </div>
+  `;
+  const m = document.getElementById('modal');
+  m.classList.add('open');
+  document.getElementById('close-modal').addEventListener('click', closeModal);
+}
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target.id === 'modal') closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+/* ---------- Hero / header / footer ---------- */
+function renderHero() {
+  const n = STATE.games.length;
+  const urgent = STATE.games.filter(g => g.urgency).length;
+  const blowouts = STATE.games.filter(g => lead(g) >= 6).length;
+
+  const h1 = document.getElementById('hero-line');
+  const sub = document.getElementById('hero-sub');
+
+  if (!n) {
+    h1.innerHTML = 'Watching the slate for <em>concessions</em>.';
+    sub.textContent = 'No games live right now.';
     return;
   }
-  // Urgency-mode games pinned to the top, then biggest lead first. Re-sorted
-  // every refresh so the column re-orders itself as scores change instead of
-  // staying pinned to first-fetch order.
-  const sorted = [...snapshot.games].sort((a, b) =>
-    (b.urgency ? 1 : 0) - (a.urgency ? 1 : 0) || gameLead(b) - gameLead(a)
-  );
-  container.innerHTML = sorted.map(renderGameCard).join('');
+  h1.innerHTML = urgent
+    ? `${urgent} game${urgent === 1 ? '' : 's'} in <em>urgency mode</em>, ${n} live on the slate.`
+    : `${n} live game${n === 1 ? '' : 's'}, watching for a <em>position player</em> on the mound.`;
+  sub.textContent = blowouts
+    ? `${blowouts} at six runs or more.`
+    : 'Nothing out of hand yet.';
+}
+
+function renderTopStatus(status) {
+  const el = document.getElementById('topbar-status');
+  const isLive = status && (Date.now() - new Date(status.last_checked).getTime())
+                  < (status.poll_interval_seconds + 60) * 1000;
+  el.innerHTML = `<span class="dot ${isLive ? 'live' : 'stale'}"></span>
+    ${isLive ? 'Running' : 'Stale'} &middot; ${status ? timeAgo(status.last_checked) : '—'}`;
 }
 
 function renderAlerts(alerts) {
   const container = document.getElementById('alerts');
-  if (!alerts || alerts.length === 0) {
-    container.innerHTML = '<div class="empty">No blowout scenarios detected yet. This is a rare event — will populate automatically when one hits.</div>';
+  if (!alerts || !alerts.length) {
+    container.innerHTML = `<div class="empty" style="border:0">No position-player alerts yet &mdash; a rare event by design.</div>`;
     return;
   }
-  const sorted = [...alerts].reverse();
-  container.innerHTML = sorted.map(a => {
+  container.innerHTML = [...alerts].reverse().map(a => {
     const o = a.odds_at_alert;
-    let oddsBlock = '';
+    let lineTxt = '';
     if (o) {
-      const betSide = a.bet_team === o.home_team ? 'home' : 'away';
-      const s = o[`spread_${betSide}`];
-      const sp = o[`spread_${betSide}_price`];
-      const ml = o[`ml_${betSide}`] ?? o[`moneyline_${betSide}`];
-      if (s != null) {
-        oddsBlock = `
-          <div class="alert-odds">
-            Line at alert (${esc(o.book_title || o.book || '')}): <b>${esc(a.bet_team)} ${spreadPt(s)}</b> (${american(sp)})${ml != null ? ` &middot; ML ${american(ml)}` : ''}
-          </div>`;
-      }
+      const side = a.bet_team === o.home_team ? 'home' : 'away';
+      const s = o[`spread_${side}`], sp = o[`spread_${side}_price`];
+      if (s != null) lineTxt = ` &middot; Line at alert: ${esc(a.bet_team)} ${spreadPt(s)} (${american(sp)})`;
     }
+    const tier = (a.tier || 'blowout').replace(/_/g, ' ').toUpperCase();
     return `
       <div class="alert-card">
-        <div class="top-line">
-          <div class="matchup-small">${esc(a.bet_team)} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${esc(a.conceding_team)}</div>
-          <div class="time">${timeAgo(a.timestamp)}</div>
+        <div class="a-meta">${esc(tier)} &middot; ${a.inning ? esc(a.inning) + 'TH INNING' : ''} &middot; RUN DIFF ${a.run_diff}${lineTxt}</div>
+        <div class="a-title">${esc(a.bet_team)} ${a.bet_team_runs} &ndash; ${a.conceding_team_runs} ${esc(a.conceding_team)}</div>
+        <div class="a-time">${timeAgo(a.timestamp)}</div>
+        <div class="a-detail">
+          <b>${esc(a.player_name)}</b> (${esc(a.player_position)}) pitched for ${esc(a.conceding_team)}.
+          Bet ${esc(a.bet_team)}'s spread to increase.
         </div>
-        <div class="detail">
-          <b>${esc(a.player_name)}</b> (${esc(a.player_position)}) pitched for ${esc(a.conceding_team)}, down ${a.run_diff} runs.
-        </div>
-        <div class="bet-tag">Bet: ${esc(a.bet_team)} spread to increase</div>
-        ${oddsBlock}
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
 
 function renderFooter(status, snapshot) {
-  const el = document.getElementById('footer-cards');
-  const isLive = status && (Date.now() - new Date(status.last_checked).getTime()) < (status.poll_interval_seconds + 60) * 1000;
+  const el = document.getElementById('footer');
   const quota = snapshot && snapshot.quota;
-  const snapshotAge = snapshot && snapshot.fetched_at ? timeAgo(snapshot.fetched_at) : '—';
-
   el.innerHTML = `
-    <div class="status-card">
-      <div class="label">Bot Status</div>
-      <div class="value"><span class="dot ${isLive ? 'live' : 'stale'}"></span>${isLive ? 'Running' : 'Stale'}</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Live Games</div>
-      <div class="value">${status ? status.live_games : '—'}</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Threshold</div>
-      <div class="value">${status ? status.blowout_run_diff + '+ runs' : '—'}</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Last Poll</div>
-      <div class="value">${status ? timeAgo(status.last_checked) : '—'}</div>
-    </div>
-    <div class="status-card">
-      <div class="label">Odds Snapshot</div>
-      <div class="value">${snapshotAge}</div>
-    </div>
-    ${quota && quota.remaining != null ? `
-    <div class="status-card">
-      <div class="label">Odds API Left</div>
-      <div class="value">${esc(quota.remaining)}</div>
-    </div>` : ''}
+    <div class="stat"><div class="label">Live games</div><div class="value">${status ? status.live_games : '—'}</div></div>
+    <div class="stat"><div class="label">Urgency</div><div class="value">${STATE.games.filter(g=>g.urgency).length}</div></div>
+    <div class="stat"><div class="label">Blowout tier</div><div class="value">${status ? status.run_diff_late + '+ late' : '—'}</div></div>
+    <div class="stat"><div class="label">Poll</div><div class="value">${status ? status.poll_interval_seconds + 's' : '—'}</div></div>
+    <div class="stat"><div class="label">Odds snapshot</div><div class="value">${snapshot && snapshot.fetched_at ? timeAgo(snapshot.fetched_at) : '—'}</div></div>
+    ${quota && quota.remaining != null ? `<div class="stat"><div class="label">Odds API left</div><div class="value">${esc(quota.remaining)}</div></div>` : ''}
   `;
 }
+
+document.getElementById('sort').addEventListener('change', e => {
+  STATE.sort = e.target.value;
+  renderGames();
+});
 
 async function refresh() {
   const [status, alerts, snapshot] = await Promise.all([
@@ -719,7 +957,12 @@ async function refresh() {
     fetchJson('alerts_log.json'),
     fetchJson('live_snapshot.json'),
   ]);
-  renderGames(snapshot);
+  STATE.games = (snapshot && snapshot.games) || [];
+  STATE.status = status;
+  renderHero();
+  renderTopStatus(status);
+  renderPills();
+  renderGames();
   renderAlerts(alerts);
   renderFooter(status, snapshot);
 }
