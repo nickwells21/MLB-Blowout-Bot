@@ -769,41 +769,79 @@ def _write_status(live_game_count):
 
 
 def _write_live_snapshot(game_pks, alerted=None):
-    """For each live game, fetch score/inning/count and match with odds
-    (moneyline, totals, run-line ladder). Writes live_snapshot.json for the
-    dashboard. Skips the odds API entirely when no games are live to protect
-    the free-tier quota."""
+    """Write live_snapshot.json: the WHOLE day's slate, not just live games, so
+    the dashboard can show upcoming and final games alongside in-progress ones.
+
+    Cost control -- the expensive calls are per-game and only made where they
+    buy something:
+      * boxscore + linescore (2 requests each): live games only. An upcoming
+        game has no bullpen or count to report, and a final one is settled.
+      * alternate run-line ladder (1 odds credit each): live games only.
+    Scheduled and final games are filled from the schedule payload, which is a
+    single cached request for the entire slate, plus the shared odds snapshot
+    that has already been fetched. So adding the full slate costs nothing
+    beyond what live games already cost.
+    """
     import json
 
+    live = set(game_pks or [])
     payload = {
         "fetched_at": time.time(),
         "book": odds.BOOK,
-        "quota": odds.quota_status() if game_pks else None,
+        "quota": odds.quota_status() if live else None,
         "games": [],
     }
 
-    all_odds = odds.get_cached_or_fetch() if game_pks else None
+    all_odds = odds.get_cached_or_fetch() if live else None
     # quota_status() reflects the fetch that may have just happened above
-    if game_pks:
+    if live:
         payload["quota"] = odds.quota_status()
 
-    for pk in game_pks:
+    # Whole slate when scheduling is available; otherwise fall back to the
+    # live pks so the dashboard still works with SCHEDULE_ENABLED=false.
+    slate = []
+    if schedule is not None:
         try:
-            box = mlb_api.get_boxscore(pk)
-            detail = mlb_api.get_linescore_detail(pk)
-            home_team = box["teams"]["home"]["team"]["name"]
-            away_team = box["teams"]["away"]["team"]["name"]
-            game_odds = None
-            if all_odds:
-                match = odds.find_game(all_odds, home_team, away_team)
-                if match:
-                    alt = odds.get_alternates_for_event(match.get("id"))
-                    game_odds = odds.extract_for_book(match, alt, odds.BOOK)
-            payload["games"].append(
-                {
-                    "game_pk": pk,
-                    "home_team": home_team,
-                    "away_team": away_team,
+            slate = schedule.get_day_games(schedule.today_et())
+        except Exception as e:
+            print(f"[bot] Slate lookup failed, falling back to live only: {e}")
+    if not slate:
+        slate = [{"game_pk": pk} for pk in live]
+
+    for entry in slate:
+        pk = entry.get("game_pk")
+        if entry.get("is_postponed"):
+            continue
+        try:
+            is_live = pk in live
+            status = entry.get("status") or ("Live" if is_live else None)
+            game = {
+                "game_pk": pk,
+                "status": status,                       # Preview | Live | Final
+                "detailed_state": entry.get("detailed_state"),
+                "is_live": is_live,
+                "start_utc": entry["start_utc"].isoformat() if entry.get("start_utc") else None,
+                "away_team": entry.get("away"),
+                "home_team": entry.get("home"),
+                "away_id": entry.get("away_id"),        # drives the logo URL
+                "home_id": entry.get("home_id"),
+                "away_record": entry.get("away_record"),
+                "home_record": entry.get("home_record"),
+                "away_runs": entry.get("away_score") or 0,
+                "home_runs": entry.get("home_score") or 0,
+                "inning": None, "inning_ordinal": None, "inning_state": None,
+                "balls": None, "strikes": None, "outs": None,
+                "away_bullpen": [], "home_bullpen": [],
+                "odds": None,
+                "urgency": bool(alerted) and _in_urgency(pk, alerted),
+            }
+
+            if is_live:
+                box = mlb_api.get_boxscore(pk)
+                detail = mlb_api.get_linescore_detail(pk)
+                game["home_team"] = box["teams"]["home"]["team"]["name"]
+                game["away_team"] = box["teams"]["away"]["team"]["name"]
+                game.update({
                     "home_runs": detail.get("home_runs", 0),
                     "away_runs": detail.get("away_runs", 0),
                     "inning": detail.get("inning"),
@@ -812,12 +850,18 @@ def _write_live_snapshot(game_pks, alerted=None):
                     "balls": detail.get("balls"),
                     "strikes": detail.get("strikes"),
                     "outs": detail.get("outs"),
-                    "odds": game_odds,
                     "home_bullpen": mlb_api.get_bullpen_detail(box, "home"),
                     "away_bullpen": mlb_api.get_bullpen_detail(box, "away"),
-                    "urgency": bool(alerted) and _in_urgency(pk, alerted),
-                }
-            )
+                })
+
+            if all_odds and game["home_team"] and game["away_team"]:
+                match = odds.find_game(all_odds, game["home_team"], game["away_team"])
+                if match:
+                    # Alternate ladders cost a credit each -- live games only.
+                    alt = odds.get_alternates_for_event(match.get("id")) if is_live else None
+                    game["odds"] = odds.extract_for_book(match, alt, odds.BOOK)
+
+            payload["games"].append(game)
         except Exception as e:
             print(f"[bot] Snapshot error for game {pk}: {e}")
 
@@ -879,7 +923,10 @@ def run_once(alerted):
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
     snapshot_payload = _write_live_snapshot(game_pks, alerted)
-    _maybe_send_hourly_summary(snapshot_payload.get("games", []))
+    # The snapshot now carries the whole slate; the summary is about live games
+    # only, so filter rather than reporting scheduled games as in progress.
+    live_only = [g for g in snapshot_payload.get("games", []) if g.get("is_live")]
+    _maybe_send_hourly_summary(live_only)
 
 
 def _utcnow():

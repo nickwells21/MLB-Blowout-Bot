@@ -136,11 +136,20 @@ def _sort_key(game):
     )
 
 
+def _record(side):
+    """'78-54' from a schedule entry's leagueRecord, or None."""
+    rec = (side or {}).get("leagueRecord") or {}
+    w, l = rec.get("wins"), rec.get("losses")
+    return f"{w}-{l}" if w is not None and l is not None else None
+
+
 def _normalize(raw):
     status = raw.get("status") or {}
     teams = raw.get("teams") or {}
-    away = (teams.get("away") or {}).get("team") or {}
-    home = (teams.get("home") or {}).get("team") or {}
+    away_side = teams.get("away") or {}
+    home_side = teams.get("home") or {}
+    away = away_side.get("team") or {}
+    home = home_side.get("team") or {}
     detailed_state = status.get("detailedState")
     return {
         "game_pk": raw.get("gamePk"),
@@ -153,6 +162,15 @@ def _normalize(raw):
         "detailed_state": detailed_state,
         "away": away.get("name"),
         "home": home.get("name"),
+        # Team ids drive the logo URLs on the dashboard
+        # (https://www.mlbstatic.com/team-logos/{id}.svg).
+        "away_id": away.get("id"),
+        "home_id": home.get("id"),
+        "away_record": _record(away_side),
+        "home_record": _record(home_side),
+        # Present on live/final games only; None before first pitch.
+        "away_score": away_side.get("score"),
+        "home_score": home_side.get("score"),
         "game_type": raw.get("gameType"),
         "is_postponed": _is_dead(detailed_state),
     }

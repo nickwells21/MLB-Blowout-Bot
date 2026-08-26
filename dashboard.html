@@ -122,6 +122,9 @@
   .sr-teams { font-size: 13px; font-weight: 600; line-height: 1.35; min-width: 0; }
   .sr-teams .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sr-teams .t.dim { color: var(--muted); }
+  .sr-logo { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; margin-right: 6px; }
+  .slate-row.upcoming { opacity: .78; }
+  .slate-row.upcoming .flag { background: transparent; }
   .sr-score { font-family: var(--mono); font-size: 15px; font-weight: 700; line-height: 1.35; text-align: right; }
   .sr-score .lose { color: var(--muted-2); }
   .sr-inning { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; line-height: 1.35; }
@@ -546,6 +549,40 @@
   .m-rule .n { font-size:12.5px; color:var(--n-tx); }
   .m-rule .r { font-size:11px; color:var(--n-tx4); margin-top:2px; text-wrap:pretty; }
   .m-rule .p { font-size:9.5px; letter-spacing:.09em; color:var(--n-tx4); flex:none; margin-top:2px; }
+
+  /* ---------- Game boxes (logo grid) ---------- */
+  .m-boxes { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:0 18px; }
+  @media (min-width:520px) { .m-boxes { grid-template-columns:repeat(3,1fr); } }
+  .m-box2 {
+    border:1px solid var(--n-bd3); border-radius:11px; background:var(--n-surf);
+    padding:11px 11px 9px; display:flex; flex-direction:column; gap:7px; min-width:0;
+  }
+  .m-box2.live { border-color:var(--n-bd4); background:var(--n-raised); }
+  .m-box2.strong { border-color:var(--n-ac700); box-shadow:0 4px 18px rgba(93,82,148,.28); }
+  .m-box2.lean { border-color:var(--n-ac800); }
+  .m-box2.final { opacity:.62; }
+  .m-brow { display:flex; align-items:center; gap:7px; min-width:0; }
+  .m-logo { width:20px; height:20px; flex:none; object-fit:contain; }
+  .m-babbr { font-size:12.5px; font-weight:500; color:var(--n-tx3); flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-brow.lead .m-babbr { color:var(--n-tx); }
+  .m-brec { font-size:9px; color:var(--n-tx5); flex:none; }
+  .m-bsc { font-size:14px; font-weight:500; color:var(--n-tx4); flex:none; min-width:16px; text-align:right; }
+  .m-brow.lead .m-bsc { color:var(--n-tx); }
+  .m-bfoot { display:flex; align-items:center; justify-content:space-between; gap:6px;
+    border-top:1px solid var(--n-bd2); padding-top:7px; margin-top:1px; }
+  .m-bstate { font-size:10px; color:var(--n-tx4); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .m-bstate.livenow { color:var(--n-good); }
+  .m-btag { font-size:9px; letter-spacing:.08em; padding:2px 5px; border-radius:4px;
+    background:var(--n-bd2); color:var(--n-tx4); flex:none; white-space:nowrap; }
+  .m-btag.hot { background:var(--n-ac900); color:var(--n-ac300); }
+  .m-btag.warm { background:rgba(251,191,36,.14); color:var(--n-warn); }
+  .m-cardlogos { display:flex; align-items:center; gap:5px; }
+  .m-cardlogos .m-logo { width:17px; height:17px; }
+
+  /* Logos inside the existing flagged card + slate rows */
+  .m-trow .m-logo { width:17px; height:17px; margin-right:6px; vertical-align:-3px; }
+  .m-ident .m-logo { width:16px; height:16px; vertical-align:-3px; margin-right:5px; }
 </style>
 </head>
 <body>
@@ -607,7 +644,7 @@
 
 <script>
 const REFRESH_MS = 15000;
-const S = { games: [], status: null, filter: 'all', sort: 'lead', sel: null, tab: 'odds', pinned: false };
+const S = { games: [], status: null, filter: 'live', sort: 'lead', sel: null, tab: 'odds', pinned: false };
 
 /* ---------- utils ---------- */
 async function getJSON(p) {
@@ -666,10 +703,11 @@ function priority(g) {
 
 /* ---------- filters / sort ---------- */
 const FILTERS = [
+  { id: 'live', label: 'Live', fn: g => !!g.is_live || g.status === 'Live' },
   { id: 'all', label: 'All', fn: () => true },
   { id: 'urgency', label: 'Urgency', fn: g => !!g.urgency },
   { id: 'blowout', label: 'Blowouts', fn: g => lead(g) >= 6 },
-  { id: 'late', label: 'Late', fn: g => (g.inning ?? 0) >= 7 },
+  { id: 'upcoming', label: 'Upcoming', fn: g => !(g.is_live || g.status === 'Live') && g.status !== 'Final' },
 ];
 function renderPills() {
   const el = document.getElementById('pills');
@@ -736,25 +774,31 @@ function renderSlate() {
     const l = lead(g), t = trailing(g);
     const cls = g.urgency ? 'urgent' : (l >= 6 ? 'big' : '');
     const leadChip = l >= 10 ? 'hot' : (l >= 6 ? 'warm' : '');
-    return '<div class="slate-row ' + cls + (String(g.game_pk) === String(S.sel) ? ' sel' : '') +
+    const gLive = !!g.is_live || g.status === 'Live';
+    const gFinal = g.status === 'Final';
+    const gUp = !gLive && !gFinal;
+    return '<div class="slate-row ' + cls + (gUp ? ' upcoming' : '') + (String(g.game_pk) === String(S.sel) ? ' sel' : '') +
       '" data-pk="' + esc(g.game_pk) + '" tabindex="0" role="button">'
       + '<span class="flag"></span>'
       + '<span class="sr-teams">'
-      +   '<span class="t' + (a < h ? ' dim' : '') + '">' + esc(g.away_team) + '</span>'
-      +   '<span class="t' + (h < a ? ' dim' : '') + '">' + esc(g.home_team) + '</span>'
+      +   '<span class="t' + (a < h ? ' dim' : '') + '">' + logoImg(g.away_id, 'sr-logo') + esc(g.away_team) + '</span>'
+      +   '<span class="t' + (h < a ? ' dim' : '') + '">' + logoImg(g.home_id, 'sr-logo') + esc(g.home_team) + '</span>'
       + '</span>'
       + '<span class="sr-score">'
-      +   '<span class="' + (a < h ? 'lose' : '') + '">' + a + '</span><br>'
-      +   '<span class="' + (h < a ? 'lose' : '') + '">' + h + '</span>'
+      +   (gUp ? '<span style="color:var(--muted-2)">—</span><br><span style="color:var(--muted-2)">—</span>'
+            : '<span class="' + (a < h ? 'lose' : '') + '">' + a + '</span><br>'
+              + '<span class="' + (h < a ? 'lose' : '') + '">' + h + '</span>')
       + '</span>'
-      + '<span class="sr-inning">' + esc(inningTxt(g)) + '<br>'
-      +   '<span style="color:var(--muted-2)">' + (g.outs ?? 0) + ' out</span></span>'
+      + '<span class="sr-inning">'
+      +   esc(gUp ? (g.start_utc ? clockLocal(g.start_utc) || 'Sched' : 'Sched') : (gFinal ? 'Final' : inningTxt(g)))
+      +   '<br><span style="color:var(--muted-2)">'
+      +   esc(gUp ? 'first pitch' : (gFinal ? 'complete' : (g.outs ?? 0) + ' out')) + '</span></span>'
       + '<span class="sr-meta">'
-      +   (l ? '<span class="chipnum ' + leadChip + '">LEAD ' + l + '</span>'
-           : '<span class="chipnum">TIED</span>')
+      +   (gUp ? '<span class="chipnum">SCHEDULED</span>'
+            : (l ? '<span class="chipnum ' + leadChip + '">LEAD ' + l + '</span>'
+                 : '<span class="chipnum">TIED</span>'))
       +   (g.urgency ? '<span class="chipnum hot">URGENCY</span>' : '')
-      +   '<span class="chipnum">' + (t ? relievers(g, t) : 0) + ' REL</span>'
-      +   penDots(g)
+      +   (gUp ? '' : '<span class="chipnum">' + (t ? relievers(g, t) : 0) + ' REL</span>' + penDots(g))
       + '</span>'
       + '<span class="sr-inning" style="text-align:right">'
       +   (g.odds ? esc(g.odds.book_title || g.odds.book || '') : '<span style="color:var(--muted-2)">no odds</span>')
@@ -1084,6 +1128,30 @@ function commas(n) {
   const v = Number(n);
   return isFinite(v) ? v.toLocaleString() : String(n);
 }
+
+/* --- Team logos + abbreviations, keyed by the MLB team id the snapshot
+   carries. Official CDN, ~2.6KB SVG each, so they scale at any size. --- */
+const TEAM_ABBR = {
+  108:'LAA',109:'ARI',110:'BAL',111:'BOS',112:'CHC',113:'CIN',114:'CLE',115:'COL',
+  116:'DET',117:'HOU',118:'KC',119:'LAD',120:'WSH',121:'NYM',133:'ATH',134:'PIT',
+  135:'SD',136:'SEA',137:'SF',138:'STL',139:'TB',140:'TEX',141:'TOR',142:'MIN',
+  143:'PHI',144:'ATL',145:'CWS',146:'MIA',147:'NYY',158:'MIL',
+};
+function abbrOf(id, fallbackName) {
+  if (id && TEAM_ABBR[id]) return TEAM_ABBR[id];
+  return nick(fallbackName).slice(0, 3).toUpperCase();
+}
+function logoImg(id, cls) {
+  if (!id) return '<span class="m-logo"></span>';
+  // A missing logo must not leave a broken-image glyph on the card.
+  return '<img class="' + (cls || 'm-logo') + '" alt="" loading="lazy" '
+    + 'src="https://www.mlbstatic.com/team-logos/' + encodeURIComponent(id) + '.svg" '
+    + 'onerror="this.style.visibility=\'hidden\'">';
+}
+function isLive(g) { return !!g.is_live || g.status === 'Live'; }
+function isFinal(g) { return g.status === 'Final'; }
+function isUpcoming(g) { return !isLive(g) && !isFinal(g); }
+function startClock(g) { return g.start_utc ? clockLocal(g.start_utc) : null; }
 function curArm(g, side) { const p = pen(g, side); return p.length ? p[p.length - 1] : null; }
 function betTeam(g) { const t = trailing(g); return t ? g[(t === 'home' ? 'away' : 'home') + '_team'] : null; }
 
@@ -1098,11 +1166,12 @@ function meter(labelLeft, cur, req, note) {
     + (note ? '<div class="note">' + esc(note) + '</div>' : '')
     + '</div>';
 }
-function teamRows(g, big) {
+function teamRows(g) {
   const a = g.away_runs ?? 0, hh = g.home_runs ?? 0;
-  const mk = (name, sc, isLead) => '<div class="m-trow' + (isLead ? ' lead' : '') + '">'
-    + '<span class="nm">' + esc(name) + '</span><span class="sc">' + esc(sc) + '</span></div>';
-  return mk(g.away_team, a, a >= hh && a !== hh ? true : a > hh) + mk(g.home_team, hh, hh > a);
+  const mk = (id, name, sc, isLead) => '<div class="m-trow' + (isLead ? ' lead' : '') + '">'
+    + '<span class="nm">' + logoImg(id) + esc(name) + '</span>'
+    + '<span class="sc">' + esc(sc) + '</span></div>';
+  return mk(g.away_id, g.away_team, a, a > hh) + mk(g.home_id, g.home_team, hh, hh > a);
 }
 function svgIcon(d, size) {
   return '<svg viewBox="0 0 20 20" width="' + (size || 18) + '" height="' + (size || 18) + '"><path d="' + d + '"/></svg>';
@@ -1203,6 +1272,63 @@ function mSlateRow(g) {
     + '<span class="m-vd ' + rail + '">' + v + '</span>'
     + '</div>';
 }
+/* --- Game box: the logo card. One per game, live / upcoming / final. --- */
+function mGameBox(g) {
+  const a = g.away_runs ?? 0, hh = g.home_runs ?? 0;
+  const live = isLive(g), fin = isFinal(g);
+  const v = live ? verdictOf(g) : 'PASS';
+  const l = lead(g);
+  const cls = ['m-box2'];
+  if (live) cls.push('live');
+  if (fin) cls.push('final');
+  if (v === 'STRONG') cls.push('strong'); else if (v === 'LEAN') cls.push('lean');
+
+  const row = (id, name, rec, score, isLeading, showScore) =>
+    '<div class="m-brow' + (isLeading ? ' lead' : '') + '">'
+    + logoImg(id)
+    + '<span class="m-babbr">' + esc(abbrOf(id, name)) + '</span>'
+    + (rec ? '<span class="m-brec">' + esc(rec) + '</span>' : '')
+    + (showScore ? '<span class="m-bsc">' + esc(score) + '</span>' : '')
+    + '</div>';
+
+  const showScore = live || fin;
+  const body = row(g.away_id, g.away_team, g.away_record, a, showScore && a > hh, showScore)
+             + row(g.home_id, g.home_team, g.home_record, hh, showScore && hh > a, showScore);
+
+  let stateTxt, stateCls = '', tag = '';
+  if (live) {
+    stateTxt = inningTxt(g) + ' · ' + (g.outs ?? 0) + ' out';
+    stateCls = ' livenow';
+    if (g.urgency) tag = '<span class="m-btag hot">URGENCY</span>';
+    else if (l >= 6) tag = '<span class="m-btag warm">LEAD ' + l + '</span>';
+    else if (l) tag = '<span class="m-btag">LEAD ' + l + '</span>';
+  } else if (fin) {
+    stateTxt = 'Final';
+    tag = l ? '<span class="m-btag">BY ' + l + '</span>' : '';
+  } else {
+    stateTxt = startClock(g) || 'Scheduled';
+    const o = g.odds;
+    // Pre-game: show the current run line rather than an empty slot.
+    if (o) {
+      const fav = (o.moneyline_home != null && o.moneyline_away != null)
+        ? (o.moneyline_home < o.moneyline_away ? 'home' : 'away') : null;
+      const sp = fav && (o['spreads_' + fav] || [])[0];
+      if (sp) tag = '<span class="m-btag">' + esc(abbrOf(g[fav + '_id'], g[fav + '_team'])) + ' ' + fmtPoint(sp.point) + '</span>';
+    }
+  }
+  return '<div class="' + cls.join(' ') + ' m-tap" data-mpk="' + esc(g.game_pk) + '" tabindex="0" role="button" '
+    + 'aria-label="' + esc(g.away_team + ' at ' + g.home_team) + '">'
+    + body
+    + '<div class="m-bfoot"><span class="m-bstate' + stateCls + '">' + esc(stateTxt) + '</span>' + tag + '</div>'
+    + '</div>';
+}
+function mBoxSection(label, games, note) {
+  if (!games.length) return '';
+  return '<div class="m-seclabel" style="padding-top:18px"><span class="m-kick">' + esc(label) + ' &middot; ' + games.length + '</span>'
+    + (note ? '<span class="rt">' + esc(note) + '</span>' : '') + '</div>'
+    + '<div class="m-boxes">' + games.map(mGameBox).join('') + '</div>';
+}
+
 function mFilterSort() {
   const chips = ['All', 'Urgency', 'Lead 6+'];
   return '<div class="m-chips">'
@@ -1230,10 +1356,12 @@ function screenSlate() {
   const st = S.status, sc = (st && st.schedule) || {};
   const all = S.games;
   const shown = mSortGames(all.filter(mFilterFn));
-  const flagged = shown.filter(g => verdictOf(g) !== 'PASS');
-  const live = all.length;
+  // Only a live game can be flagged — a scheduled one has no bullpen state.
+  const flagged = shown.filter(g => isLive(g) && verdictOf(g) !== 'PASS');
+  const liveCount = all.filter(isLive).length;
 
-  let out = mHeader('Today', live + ' live' + (sc.games_today != null ? ' · ' + sc.games_today + ' today' : ''));
+  // mHeader escapes its meta, so use the literal character, not an entity.
+  let out = mHeader('Today', liveCount + ' live · ' + all.length + ' today');
   out += mDateStrip();
   out += mSleepBanner();
 
@@ -1261,7 +1389,14 @@ function screenSlate() {
     }
     out += '<div class="m-empty"><div class="a">' + esc(a) + '</div><div class="b">' + esc(b) + '</div></div>';
   } else {
-    out += shown.map(mSlateRow).join('');
+    // Logo boxes, split by state. Live first — that's where a signal can fire.
+    const liveG = shown.filter(isLive);
+    const upG = shown.filter(isUpcoming).sort((x, y) =>
+      String(x.start_utc || '').localeCompare(String(y.start_utc || '')));
+    const finG = shown.filter(isFinal);
+    out += mBoxSection('LIVE NOW', liveG, 'tap for the full read');
+    out += mBoxSection('UPCOMING', upG, upG.length ? 'first pitch, local' : '');
+    out += mBoxSection('FINAL', finG);
   }
   // Stats footer — only the cells we actually have data for.
   const cells = [];
@@ -1281,7 +1416,8 @@ function screenSlate() {
 /* --- Screen: Live monitor --- */
 function screenLive() {
   const st = S.status;
-  const live = [...S.games].sort((a, b) => readiness(b) - readiness(a));
+  // The snapshot now carries the whole slate; this screen is in-progress only.
+  const live = S.games.filter(isLive).sort((a, b) => readiness(b) - readiness(a));
   let out = mHeader('Live monitor', live.length + ' in progress');
   out += '<div class="m-intro">Every live game, closest to firing first. One screen, no taps.</div>';
   if (!live.length) {
@@ -1327,14 +1463,23 @@ function screenGame() {
   const g = mGame();
   if (!g) { M.screen = 'slate'; return screenSlate(); }
   const a = g.away_runs ?? 0, hh = g.home_runs ?? 0;
+  // Computed up front — building these inline inside a ternary chain is how
+  // the concatenation broke last time.
+  const up = isUpcoming(g), fin = isFinal(g);
+  const stateLine = up ? (startClock(g) || 'Scheduled') : (fin ? 'Final' : inningTxt(g));
+  const countLine = up ? 'first pitch'
+    : (fin ? 'complete' : (g.balls ?? 0) + '-' + (g.strikes ?? 0) + ', ' + (g.outs ?? 0) + ' out');
   let out = '<div class="m-ghead">'
     + '<button class="m-back" id="m-back"><svg viewBox="0 0 13 16"><path d="M9.5 3.5 5 8l4.5 4.5"/></svg>Slate</button>'
-    + '<div class="m-ident"><div class="names"><div class="a">' + esc(g.away_team) + '</div>'
-    +   '<div class="b">' + esc(g.home_team) + '</div></div>'
+    + '<div class="m-ident"><div class="names">'
+    +   '<div class="a">' + logoImg(g.away_id) + esc(g.away_team)
+    +     (g.away_record ? ' <span style="color:var(--n-tx5)">' + esc(g.away_record) + '</span>' : '') + '</div>'
+    +   '<div class="b">' + logoImg(g.home_id) + esc(g.home_team)
+    +     (g.home_record ? ' <span style="color:var(--n-tx5)">' + esc(g.home_record) + '</span>' : '') + '</div></div>'
     +   '<div class="rt"><div class="scores"><div class="' + (a < hh ? 'lo' : '') + '">' + a + '</div>'
     +     '<div class="' + (hh < a ? 'lo' : '') + '">' + hh + '</div></div>'
-    +     '<div class="inncol"><div class="a">' + esc(inningTxt(g)) + '</div>'
-    +     '<div class="b">' + (g.balls ?? 0) + '-' + (g.strikes ?? 0) + ', ' + (g.outs ?? 0) + ' out</div></div></div></div>'
+    +     '<div class="inncol"><div class="a">' + esc(stateLine) + '</div>'
+    +     '<div class="b">' + esc(countLine) + '</div></div></div></div>'
     + '<div class="m-tabs">' + M_TABS.map(t =>
         '<button class="' + (M.tab === t[0] ? 'on' : '') + '" data-mt="' + t[0] + '">' + esc(t[1]) + '</button>').join('')
     + '</div></div><div class="bbin">';
@@ -1350,7 +1495,10 @@ function gOverview(g) {
   const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 4);
   const bt = betTeam(g), ct = t ? g[t + '_team'] : null;
   let reason;
-  if (v === 'STRONG') reason = 'Bullpen-exhausted gate is already clear at ' + rel + ' relievers. A position player on the mound fires urgent, immediately, with no inning or run-diff check.';
+  if (isUpcoming(g)) reason = 'Not started. First pitch ' + (startClock(g) || 'TBD')
+    + '. The bot begins evaluating tiers on this game once it goes live.';
+  else if (isFinal(g)) reason = 'Final. No tier can fire on a completed game.';
+  else if (v === 'STRONG') reason = 'Bullpen-exhausted gate is already clear at ' + rel + ' relievers. A position player on the mound fires urgent, immediately, with no inning or run-diff check.';
   else if (v === 'LEAN') reason = 'Urgency latched at lead ' + thr('urgency_run_diff', 6) + ' with ' + thr('urgency_min_relievers', 2) + '+ relievers used. Still ' + Math.max(0, exh - rel) + ' arms short of the exhaustion bypass, so the blowout tier is what would fire.';
   else if (lead(g) >= req) reason = 'Run diff clears, but the trailing bullpen is only ' + rel + ' deep and urgency has not latched.';
   else reason = 'Lead is ' + Math.max(0, req - lead(g)) + ' short of the inning-' + (g.inning ?? '?') + ' requirement. Nothing armed.';
@@ -1720,13 +1868,39 @@ if (MQ.addEventListener) MQ.addEventListener('change', applyViewport); else MQ.a
 window.addEventListener('resize', applyViewport);
 window.addEventListener('orientationchange', applyViewport);
 
-// Freshness counter ticks every second — stale data on a betting dashboard is
-// worse than no data, so the age display must never go quiet. The same tick
-// re-checks the breakpoint, so the layout self-corrects even in environments
-// where neither the matchMedia change nor the resize event fires.
+/* Freshness ticks every second — stale data on a betting dashboard is worse
+   than no data, so the age display must never go quiet. But a full re-render
+   at 1Hz would tear down and rebuild every <img> on the screen once a second,
+   which flickers the logos on a real device. So the tick patches only the
+   text that actually changes; full re-renders stay on the 15s data refresh
+   and on user interaction. */
+function tickFreshness() {
+  const st = S.status;
+  const el = document.querySelector('#m-screen .m-fresh');
+  if (el && st) {
+    const sleeping = st.bot_state === 'sleeping';
+    let txt, stale = false;
+    if (M.polling) txt = 'polling…';
+    else if (sleeping) txt = 'asleep';
+    else {
+      const secs = Math.max(0, Math.round((Date.now() - Date.parse(st.last_checked)) / 1000));
+      txt = secs + 's ago';
+      stale = secs > 25;
+    }
+    if (el.textContent !== txt) el.textContent = txt;
+    el.classList.toggle('stale', stale);
+  }
+  // Sleep-banner countdown is the other per-second value.
+  const hl = document.querySelector('#m-screen .m-sleep .hl');
+  if (hl && st && st.schedule && st.schedule.next_wake) {
+    const u = untilText(st.schedule.next_wake);
+    const txt = st.schedule.games_today === 0 ? 'No games today' : (u ? 'Wakes ' + u : 'Waiting for the next slate');
+    if (hl.textContent !== txt) hl.textContent = txt;
+  }
+}
 setInterval(() => {
   applyViewport();
-  if (document.body.classList.contains('mobile') && !M.polling) renderMobile();
+  if (document.body.classList.contains('mobile')) tickFreshness();
 }, 1000);
 
 M.outcomes = loadOutcomes();
