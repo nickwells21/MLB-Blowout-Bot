@@ -206,6 +206,68 @@
     padding: 4px 0;
   }
 
+  /* Bullpen strip */
+  .bullpen-block {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .bullpen-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .bullpen-col {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .bullpen-col .bp-team {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .bp-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 12px;
+    padding: 3px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .bp-row .bp-idx {
+    color: var(--muted);
+    font-size: 10px;
+    text-align: right;
+  }
+  .bp-row .bp-name {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bp-row .bp-stats {
+    color: var(--muted-strong);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .bp-row.bp-current .bp-name { color: var(--accent); font-weight: 600; }
+  .bp-row.bp-current .bp-name::after {
+    content: " ●";
+    color: var(--good);
+    font-size: 10px;
+  }
+  .bp-empty {
+    color: var(--muted);
+    font-size: 11px;
+    font-style: italic;
+  }
+
   /* Alert history */
   .alert-card {
     background: var(--panel);
@@ -401,6 +463,51 @@ function renderGameCard(g) {
       </div>
 
       ${renderBets(g)}
+      ${renderBullpens(g)}
+    </div>
+  `;
+}
+
+function renderBullpens(g) {
+  const away = g.away_bullpen || [];
+  const home = g.home_bullpen || [];
+  if (!away.length && !home.length) return '';
+  return `
+    <div class="bullpen-block">
+      <div class="bullpen-grid">
+        ${renderBullpenCol(g.away_team, away)}
+        ${renderBullpenCol(g.home_team, home)}
+      </div>
+    </div>
+  `;
+}
+
+function renderBullpenCol(team, pen) {
+  if (!pen || !pen.length) {
+    return `
+      <div class="bullpen-col">
+        <div class="bp-team">${esc(team)} bullpen</div>
+        <div class="bp-empty">No pitchers logged yet.</div>
+      </div>
+    `;
+  }
+  const rows = pen.map((p, i) => {
+    const stats = [];
+    if (p.innings_pitched != null) stats.push(`${p.innings_pitched} IP`);
+    if (p.pitches != null) stats.push(`${p.pitches}p`);
+    const rowCls = p.is_current ? 'bp-row bp-current' : 'bp-row';
+    return `
+      <div class="${rowCls}">
+        <span class="bp-idx">${i + 1}.</span>
+        <span class="bp-name">${esc(p.name)}</span>
+        <span class="bp-stats">${stats.join(' · ') || '—'}</span>
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="bullpen-col">
+      <div class="bp-team">${esc(team)} bullpen (${pen.length})</div>
+      ${rows}
     </div>
   `;
 }

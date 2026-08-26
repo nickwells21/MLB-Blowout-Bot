@@ -68,6 +68,14 @@ _last_summary_at = time.time()
 BIG_LEAD_THRESHOLD = int(os.environ.get("BIG_LEAD_THRESHOLD", "6"))
 BIG_LEAD_STEP = int(os.environ.get("BIG_LEAD_STEP", "3"))
 
+# Extreme-lead watch: once a lead is truly out-of-hand (10+ runs by default),
+# re-alert on tighter increments (every 2 runs: 10, 12, 14, ...) at urgent
+# priority and specifically ask you to watch for bullpen churn. Big Lead
+# suppresses inside extreme territory so the two tiers don't double-ping at
+# overlapping buckets (e.g. lead=12 hits both otherwise).
+EXTREME_LEAD_THRESHOLD = int(os.environ.get("EXTREME_LEAD_THRESHOLD", "10"))
+EXTREME_LEAD_STEP = int(os.environ.get("EXTREME_LEAD_STEP", "2"))
+
 # In-memory only (not persisted across restarts): last known pitcher-used
 # count per (game_pk, trailing_side), used to detect a fresh substitution.
 _last_pitcher_count = {}
@@ -100,6 +108,14 @@ def _lead_bucket(lead):
     return BIG_LEAD_THRESHOLD + BIG_LEAD_STEP * ((lead - BIG_LEAD_THRESHOLD) // BIG_LEAD_STEP)
 
 
+def _extreme_lead_bucket(lead):
+    """Same shape as _lead_bucket but on the extreme-lead ladder.
+    E.g. threshold=10, step=2: lead 10-11 -> 10, lead 12-13 -> 12, ..."""
+    if lead < EXTREME_LEAD_THRESHOLD:
+        return None
+    return EXTREME_LEAD_THRESHOLD + EXTREME_LEAD_STEP * ((lead - EXTREME_LEAD_THRESHOLD) // EXTREME_LEAD_STEP)
+
+
 def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted):
     """Score-only watch tier, completely independent of who's pitching: fires
     the first time a game's run differential crosses BIG_LEAD_THRESHOLD, and
@@ -109,6 +125,10 @@ def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, out
     home_runs = linescore.get("home", 0)
     away_runs = linescore.get("away", 0)
     lead = abs(home_runs - away_runs)
+    # Extreme tier handles anything above its threshold at tighter increments
+    # -- don't double-alert the same game from Big Lead at bucket 12/15/etc.
+    if lead >= EXTREME_LEAD_THRESHOLD:
+        return
     bucket = _lead_bucket(lead)
     if bucket is None:
         return
@@ -154,6 +174,84 @@ def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, out
     notifier.send_alert("Big Lead Watch", message, priority="default", tags="eyes")
 
 
+def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+    """Once a lead reaches EXTREME_LEAD_THRESHOLD, alert at urgent priority and
+    re-alert on tighter EXTREME_LEAD_STEP increments. Also inlines the losing
+    team's current bullpen state (# relievers already used, current pitcher's
+    pitch count) so the notification itself signals how close a bullpen change
+    might be. Marks the game "extreme flagged" via its own alerted key so
+    check_pitcher_change() picks up the higher-urgency treatment."""
+    home_runs = linescore.get("home", 0)
+    away_runs = linescore.get("away", 0)
+    lead = abs(home_runs - away_runs)
+    bucket = _extreme_lead_bucket(lead)
+    if bucket is None:
+        return
+
+    key = f"extreme:{game_pk}:{bucket}"
+    if key in alerted:
+        return
+    alerted.add(key)
+
+    if home_runs > away_runs:
+        leading_side, trailing_side = "home", "away"
+    else:
+        leading_side, trailing_side = "away", "home"
+    leading_team = linescore[f"{leading_side}_name"]
+    trailing_team = linescore[f"{trailing_side}_name"]
+    leading_runs = linescore[leading_side]
+    trailing_runs = linescore[trailing_side]
+
+    bullpen = mlb_api.get_bullpen_detail(boxscore, trailing_side)
+    relievers_used = max(0, len(bullpen) - 1)  # exclude starter
+    current = bullpen[-1] if bullpen else None
+    current_line = ""
+    if current:
+        pieces = [current["name"]]
+        if current.get("innings_pitched") is not None:
+            pieces.append(f"{current['innings_pitched']} IP")
+        if current.get("pitches") is not None:
+            pieces.append(f"{current['pitches']} pitches")
+        current_line = " — ".join(pieces)
+
+    inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
+    message_parts = [
+        f"EXTREME LEAD: {leading_team} up by {lead}.",
+        f"{leading_team} {leading_runs} - {trailing_team} {trailing_runs}",
+        inning_line,
+        "",
+        f"{trailing_team} bullpen: {relievers_used} reliever(s) burned already.",
+    ]
+    if current_line:
+        message_parts.append(f"On the mound: {current_line}")
+    message_parts.append("")
+    message_parts.append("Watch this game closely — every bullpen swap will ping.")
+
+    try:
+        all_odds = odds.get_cached_or_fetch()
+        if all_odds:
+            match = odds.find_game(all_odds, linescore["home_name"], linescore["away_name"])
+            game_odds = odds.extract_for_book(match, None, odds.BOOK) if match else None
+            if game_odds:
+                ladder = game_odds.get(f"spreads_{leading_side}") or []
+                if ladder:
+                    point = ladder[0]["point"]
+                    price = ladder[0]["price"]
+                    message_parts.append(
+                        f"Current {game_odds.get('book_title', 'book')} line: "
+                        f"{leading_team} {point:+g} ({price:+d})"
+                    )
+    except Exception as e:
+        print(f"[bot] Extreme-lead odds lookup failed for {game_pk}: {e}")
+
+    notifier.send_alert(
+        "Extreme Lead Alert",
+        "\n".join(message_parts),
+        priority="urgent",
+        tags="rotating_light,fire",
+    )
+
+
 def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
     """Urgent, early-warning tier: once a game has been big-lead-flagged (by
     check_big_lead above), ping on EVERY new pitcher for the trailing team --
@@ -178,7 +276,8 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
 
     _last_pitcher_count[state_key] = current_count
 
-    is_big_lead_game = any(k.startswith(f"biglead:{game_pk}:") for k in alerted)
+    is_extreme_game = any(k.startswith(f"extreme:{game_pk}:") for k in alerted)
+    is_big_lead_game = is_extreme_game or any(k.startswith(f"biglead:{game_pk}:") for k in alerted)
     if not is_big_lead_game:
         return
 
@@ -201,13 +300,21 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
     pitcher_name = new_pitcher.get("person", {}).get("fullName", "New pitcher")
     inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
 
+    header = "EXTREME LEAD - " if is_extreme_game else ""
+    footer = (
+        "Extreme blowout still active -- position player could be next."
+        if is_extreme_game
+        else "Bullpen still churning in this blowout -- watch for a position player next."
+    )
     message = (
-        f"{leading_team} {linescore[leading_side]} - {trailing_team} {linescore[trailing_side]}\n"
+        f"{header}{leading_team} {linescore[leading_side]} - {trailing_team} {linescore[trailing_side]}\n"
         f"{inning_line}\n\n"
         f"{pitcher_name} is in for {trailing_team} (reliever #{current_count}). "
-        f"Bullpen still churning in this blowout -- watch for a position player next."
+        f"{footer}"
     )
-    notifier.send_alert("Pitcher Change Alert", message, priority="urgent", tags="warning")
+    title = "Pitcher Change Alert" + (" (Extreme)" if is_extreme_game else "")
+    tags = "rotating_light,fire" if is_extreme_game else "warning"
+    notifier.send_alert(title, message, priority="urgent", tags=tags)
 
 
 def required_run_diff_for_inning(inning):
@@ -262,6 +369,11 @@ def check_game(game_pk, alerted):
     inning_state = detail.get("inning_state")
     outs = detail.get("outs")
 
+    # Order matters: extreme first so its "extreme:" key exists before
+    # check_pitcher_change() decides whether this game is extreme-flagged.
+    # Big-lead runs after extreme and self-suppresses inside extreme
+    # territory so the two tiers can't double-alert on overlapping buckets.
+    check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
     check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted)
     check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
 
@@ -388,6 +500,10 @@ def _write_status(live_game_count):
                 "run_diff_mid": RUN_DIFF_MID,
                 "run_diff_late": RUN_DIFF_LATE,
                 "bullpen_exhaustion_count": BULLPEN_EXHAUSTION_COUNT,
+                "big_lead_threshold": BIG_LEAD_THRESHOLD,
+                "big_lead_step": BIG_LEAD_STEP,
+                "extreme_lead_threshold": EXTREME_LEAD_THRESHOLD,
+                "extreme_lead_step": EXTREME_LEAD_STEP,
                 "poll_interval_seconds": POLL_INTERVAL_SECONDS,
             },
             f,
@@ -440,6 +556,8 @@ def _write_live_snapshot(game_pks):
                     "strikes": detail.get("strikes"),
                     "outs": detail.get("outs"),
                     "odds": game_odds,
+                    "home_bullpen": mlb_api.get_bullpen_detail(box, "home"),
+                    "away_bullpen": mlb_api.get_bullpen_detail(box, "away"),
                 }
             )
         except Exception as e:
@@ -519,6 +637,8 @@ def notify_startup():
         f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning).\n"
         f"Big Lead Watch: {BIG_LEAD_THRESHOLD}+ run lead, any inning, re-alerts every "
         f"{BIG_LEAD_STEP} runs.\n"
+        f"Extreme Lead Alert: {EXTREME_LEAD_THRESHOLD}+ run lead, re-alerts every "
+        f"{EXTREME_LEAD_STEP} runs at urgent priority.\n"
         f"Pitcher Change Alert: urgent ping on any new reliever once a game is big-lead "
         f"flagged.\n"
         f"Polling every {POLL_INTERVAL_SECONDS}s."

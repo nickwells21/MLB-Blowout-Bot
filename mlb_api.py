@@ -95,6 +95,35 @@ def count_pitchers_used(boxscore, side):
     return len(team.get("pitchers", []))
 
 
+def get_bullpen_detail(boxscore, side):
+    """Ordered list of every pitcher a team has used this game, chronological
+    (starter first, current pitcher last). Each entry: name, innings_pitched
+    (MLB's own "3.1" notation), pitches (numberOfPitches this outing),
+    is_current (True only for the last entry — MLB writes final pitch counts
+    into the boxscore as soon as a pitcher exits, so past entries' counts
+    lock in automatically without any bookkeeping on our side)."""
+    team = boxscore["teams"][side]
+    pitcher_ids = team.get("pitchers", [])
+    players = team.get("players", {})
+    detail = []
+    for idx, pid in enumerate(pitcher_ids):
+        player = players.get(f"ID{pid}")
+        if not player:
+            continue
+        pitching = player.get("stats", {}).get("pitching", {}) or {}
+        detail.append(
+            {
+                "player_id": pid,
+                "name": player.get("person", {}).get("fullName", "Unknown"),
+                "position": player.get("position", {}).get("abbreviation"),
+                "innings_pitched": pitching.get("inningsPitched"),
+                "pitches": pitching.get("numberOfPitches"),
+                "is_current": idx == len(pitcher_ids) - 1,
+            }
+        )
+    return detail
+
+
 def get_starter_info(boxscore, side):
     """Return {'player_id', 'name', 'innings_pitched'} for the side's starter
     (the first entry in the team's chronological `pitchers` list), or None
