@@ -122,7 +122,10 @@
   .sr-teams { font-size: 13px; font-weight: 600; line-height: 1.35; min-width: 0; }
   .sr-teams .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sr-teams .t.dim { color: var(--muted); }
-  .sr-logo { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; margin-right: 6px; }
+  .sr-logo { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; }
+  /* Desktop content sits above the fixed ambient field. */
+  #desk-root { position: relative; z-index: 1; }
+  .sr-teams .m-lw { margin-right: 6px; vertical-align: -3px; }
   .slate-row.upcoming { opacity: .78; }
   .slate-row.upcoming .flag { background: transparent; }
   .sr-score { font-family: var(--mono); font-size: 15px; font-weight: 700; line-height: 1.35; text-align: right; }
@@ -244,18 +247,51 @@
    Active under 700px via body.mobile (set in JS, re-evaluated on resize).
    ========================================================================== */
   :root {
-    --n-ground:#161826; --n-surf:#1c1e2b; --n-raised:#1f1d2e; --n-armed:#1d1b2b;
-    --n-nav:#191b28; --n-navact:#232640;
-    --n-tx:#e9e9ed; --n-tx2:#b2b6ca; --n-tx3:#9397ab; --n-tx4:#75798c; --n-tx5:#595d6c;
-    --n-bd:#22242f; --n-bd2:#2b2d3a; --n-bd3:#2f3240; --n-bd4:#3f424d;
+    /* Black ground. Surfaces are near-black neutrals so the only real color on
+       the page comes from the team halos and the ambient wash. */
+    --n-ground:#000; --n-surf:#0b0b0d; --n-raised:#141417; --n-armed:#121215;
+    --n-nav:#08080a; --n-navact:#1c1c21;
+    --n-tx:#f2f2f4; --n-tx2:#b9bac0; --n-tx3:#9a9ba3; --n-tx4:#75767e; --n-tx5:#565760;
+    --n-bd:#1c1c20; --n-bd2:#242429; --n-bd3:#2e2e34; --n-bd4:#3a3a41;
     --n-ac:#9184d9; --n-ac300:#d2cefd; --n-ac400:#b5abfc; --n-ac600:#796cbf;
-    --n-ac700:#5d5294; --n-ac800:#423a6a; --n-ac900:#2b2741; --n-actint:#252734;
+    --n-ac700:#5d5294; --n-ac800:#423a6a; --n-ac900:#1e1a2b; --n-actint:#1a1a1f;
     --n-good:oklch(0.72 0.10 152); --n-bad:oklch(0.65 0.13 26);
     --n-badmute:#5c4a4a; --n-warn:oklch(0.78 0.11 78);
-    --n-signal:#211f33;
+    --n-signal:#131316;
   }
   body.mobile { max-width:none; padding:0; background:var(--n-ground); color:var(--n-tx);
     font-variant-numeric: tabular-nums; font-size:14px; line-height:1.5; }
+
+  /* ---------- Ambient wash ----------
+     A fixed, very low-alpha color field behind everything. Sits below content
+     and never scrolls, so the page reads as black with soft color pooling at
+     the edges rather than a flat void. The two hues are set from JS to match
+     what the slate is actually doing (urgency runs warm/red, a big lead runs
+     amber, an ordinary slate stays cool). */
+  .amb {
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(90% 55% at 8% -8%,  var(--amb1, rgba(120,110,190,.16)) 0%, transparent 62%),
+      radial-gradient(85% 50% at 98% 8%,  var(--amb2, rgba(60,120,190,.10)) 0%, transparent 60%),
+      radial-gradient(120% 60% at 50% 108%, var(--amb3, rgba(90,90,150,.12)) 0%, transparent 66%);
+    transition: background 1.2s ease;
+  }
+  body.mobile #m-root { position:relative; z-index:1; }
+  body.mobile .m-tab { z-index:5; }
+
+  /* ---------- Team-color halo behind each logo ---------- */
+  .m-lw { position:relative; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .m-lw::before {
+    content:''; position:absolute; left:50%; top:50%;
+    width:190%; height:190%; transform:translate(-50%,-50%);
+    border-radius:50%; pointer-events:none;
+    background: radial-gradient(circle, var(--tc, transparent) 0%, transparent 66%);
+    opacity:.30; filter:blur(4px);
+  }
+  .m-lw img, .m-lw span { position:relative; z-index:1; }
+  /* Bigger, warmer halo on the game boxes where the logo is the focal point */
+  .m-box2 .m-lw::before { width:215%; height:215%; opacity:.36; filter:blur(5px); }
+  .m-box2.final .m-lw::before { opacity:.16; }
   body.mobile #desk-root { display:none; }
   body.mobile #m-root { display:block; }
   body:not(.mobile) #m-root { display:none !important; }
@@ -287,7 +323,7 @@
     stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
 
   /* List header */
-  .m-head { padding:0 18px 10px; background:linear-gradient(180deg,#1c1e2e 0%,#161826 100%); }
+  .m-head { padding:0 18px 10px; background:linear-gradient(180deg,rgba(255,255,255,.045) 0%,rgba(0,0,0,0) 100%); }
   .m-head .r1 { height:26px; display:flex; align-items:center; justify-content:space-between; }
   .m-mark { display:flex; align-items:center; gap:7px; }
   .m-markbox { width:15px; height:15px; border:1px solid var(--n-ac); border-radius:4px;
@@ -337,7 +373,7 @@
   .m-card { margin:0 18px 11px; padding:14px; border-radius:12px; border:1px solid var(--n-bd4);
     background:var(--n-surf); }
   .m-card.strong { border-color:var(--n-ac700);
-    background:radial-gradient(130% 150% at 100% 0%,#2b2741 0%,#1d1f2e 60%,#1a1c29 100%);
+    background:radial-gradient(130% 150% at 100% 0%,rgba(239,68,68,.13) 0%,rgba(255,255,255,.02) 55%,rgba(0,0,0,0) 100%);
     box-shadow:0 6px 24px rgba(93,82,148,.35); }
   .m-card .tier { font-size:9.5px; letter-spacing:.14em; color:var(--n-tx2); }
   .m-card.strong .tier { color:var(--n-ac300); }
@@ -409,7 +445,7 @@
   /* Panels */
   .m-panel { margin:16px 18px 0; padding:13px 14px; border-radius:10px;
     border:1px solid var(--n-bd3); background:var(--n-surf); }
-  .m-panel.dashed { border:1px dashed var(--n-ac700); background:#1e1c2c; }
+  .m-panel.dashed { border:1px dashed var(--n-ac700); background:rgba(255,255,255,.03); }
   .m-panel .body { font-size:12px; color:var(--n-tx2); margin-top:8px; text-wrap:pretty; }
 
   /* Live monitor */
@@ -426,8 +462,8 @@
   .m-mrow .gate { width:150px; text-align:right; font-size:10.5px; color:var(--n-tx3); flex:none; }
 
   /* Game detail */
-  .m-ghead { padding:0 18px 0; background:linear-gradient(180deg,#20223a 0%,#161826 100%); }
-  .m-shead { padding:0 18px 14px; background:linear-gradient(180deg,#282348 0%,#161826 100%); }
+  .m-ghead { padding:0 18px 0; background:linear-gradient(180deg,rgba(255,255,255,.06) 0%,rgba(0,0,0,0) 100%); }
+  .m-shead { padding:0 18px 14px; background:linear-gradient(180deg,rgba(239,68,68,.10) 0%,rgba(0,0,0,0) 100%); }
   .m-back { height:26px; display:flex; align-items:center; gap:5px; font-size:12px;
     color:var(--n-ac400); background:transparent; border:0; cursor:pointer; font-family:var(--font); padding:0; }
   .m-back svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.5;
@@ -451,7 +487,7 @@
 
   .m-vcard { margin:14px 18px 0; padding:14px; border-radius:11px; border:1px solid var(--n-bd4); background:var(--n-surf); }
   .m-vcard.strong { border-color:var(--n-ac700);
-    background:radial-gradient(130% 150% at 100% 0%,#2b2741 0%,#1d1f2e 60%,#1a1c29 100%); }
+    background:radial-gradient(130% 150% at 100% 0%,rgba(239,68,68,.13) 0%,rgba(255,255,255,.02) 55%,rgba(0,0,0,0) 100%); }
   .m-vcard .reason { font-size:14px; color:var(--n-tx); margin-top:9px; text-wrap:pretty; }
   .m-vcard .foot { margin-top:12px; padding-top:11px; border-top:1px solid var(--n-bd3);
     display:flex; justify-content:space-between; gap:12px; }
@@ -529,7 +565,7 @@
 
   /* Track record */
   .m-hero { margin:2px 18px 0; padding:15px; border-radius:12px; border:1px solid var(--n-bd4);
-    background:linear-gradient(160deg,#20223a 0%,#1a1c29 100%); }
+    background:linear-gradient(160deg,rgba(255,255,255,.06) 0%,rgba(0,0,0,0) 100%); }
   .m-hero .big { font-size:42px; line-height:.9; letter-spacing:-.03em; font-weight:500; }
   .m-hero .side { padding-bottom:5px; }
   .m-hero .side .a { font-size:12px; color:var(--n-tx2); }
@@ -554,13 +590,17 @@
   .m-boxes { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:0 18px; }
   @media (min-width:520px) { .m-boxes { grid-template-columns:repeat(3,1fr); } }
   .m-box2 {
-    border:1px solid var(--n-bd3); border-radius:11px; background:var(--n-surf);
+    /* Thin grey outline on near-black, generous rounding. The color in a box
+       comes from the logo halos, not from the container. */
+    border:1px solid #2a2a30; border-radius:14px;
+    background:rgba(255,255,255,.018);
     padding:11px 11px 9px; display:flex; flex-direction:column; gap:7px; min-width:0;
+    transition:border-color .2s ease, background .2s ease;
   }
-  .m-box2.live { border-color:var(--n-bd4); background:var(--n-raised); }
-  .m-box2.strong { border-color:var(--n-ac700); box-shadow:0 4px 18px rgba(93,82,148,.28); }
-  .m-box2.lean { border-color:var(--n-ac800); }
-  .m-box2.final { opacity:.62; }
+  .m-box2.live { border-color:#38383f; background:rgba(255,255,255,.038); }
+  .m-box2.strong { border-color:rgba(239,68,68,.55); box-shadow:0 0 22px rgba(239,68,68,.14); }
+  .m-box2.lean { border-color:rgba(251,191,36,.42); }
+  .m-box2.final { opacity:.5; }
   .m-brow { display:flex; align-items:center; gap:7px; min-width:0; }
   .m-logo { width:20px; height:20px; flex:none; object-fit:contain; }
   .m-babbr { font-size:12.5px; font-weight:500; color:var(--n-tx3); flex:1; min-width:0;
@@ -586,6 +626,8 @@
 </style>
 </head>
 <body>
+
+<div class="amb" id="amb" aria-hidden="true"></div>
 
 <div id="desk-root">
   <div class="masthead">
@@ -1141,12 +1183,28 @@ function abbrOf(id, fallbackName) {
   if (id && TEAM_ABBR[id]) return TEAM_ABBR[id];
   return nick(fallbackName).slice(0, 3).toUpperCase();
 }
+/* Team identity colors for the halo behind each logo. Where a club's true
+   primary is near-black or very dark navy (Yankees, Tigers, White Sox, A's,
+   Rays, Brewers, Rangers, Twins) the secondary is used instead — a #003087
+   glow on a black page is invisible, which defeats the point. */
+const TEAM_COLOR = {
+  108:'#BA0021',109:'#A71930',110:'#DF4601',111:'#BD3039',112:'#3B6FD4',
+  113:'#C6011F',114:'#E50022',115:'#6E6EBF',116:'#FA4616',117:'#EB6E1F',
+  118:'#2B6CB0',119:'#2D7DD2',120:'#AB0003',121:'#FF5910',133:'#EFB21E',
+  134:'#FDB827',135:'#FFC425',136:'#1F9C9C',137:'#FD5A1E',138:'#C41E3A',
+  139:'#8FBCE6',140:'#C0111F',141:'#2E6FC7',142:'#D31145',143:'#E81828',
+  144:'#CE1141',145:'#C4CED4',146:'#00A3E0',147:'#4A7FD4',158:'#FFC52F',
+};
+function teamColor(id) { return (id && TEAM_COLOR[id]) || '#6b7280'; }
+
 function logoImg(id, cls) {
-  if (!id) return '<span class="m-logo"></span>';
-  // A missing logo must not leave a broken-image glyph on the card.
-  return '<img class="' + (cls || 'm-logo') + '" alt="" loading="lazy" '
-    + 'src="https://www.mlbstatic.com/team-logos/' + encodeURIComponent(id) + '.svg" '
-    + 'onerror="this.style.visibility=\'hidden\'">';
+  const img = id
+    // A missing logo must not leave a broken-image glyph on the card.
+    ? '<img class="' + (cls || 'm-logo') + '" alt="" loading="lazy" '
+      + 'src="https://www.mlbstatic.com/team-logos/' + encodeURIComponent(id) + '.svg" '
+      + 'onerror="this.style.visibility=\'hidden\'">'
+    : '<span class="' + (cls || 'm-logo') + '"></span>';
+  return '<span class="m-lw" style="--tc:' + teamColor(id) + '">' + img + '</span>';
 }
 function isLive(g) { return !!g.is_live || g.status === 'Live'; }
 function isFinal(g) { return g.status === 'Final'; }
@@ -1795,7 +1853,50 @@ const NAVS = [
   ['alerts', 'Alerts', 'M10 3a4.6 4.6 0 0 0-4.6 4.6c0 3.6-1.6 4.7-1.6 4.7h12.4s-1.6-1.1-1.6-4.7A4.6 4.6 0 0 0 10 3zM8.3 15.4a1.9 1.9 0 0 0 3.4 0'],
   ['record', 'Record', 'M4 16V9m4 7V4m4 12v-5m4 5V7'],
 ];
+/* The ambient field takes its hue from what the slate is doing, so the page
+   itself reads hot when something is close to firing. Team colors of the most
+   interesting game feed the third pool, which is what makes it feel tied to
+   the actual games rather than being a fixed decoration. */
+function updateAmbient() {
+  const el = document.getElementById('amb');
+  if (!el) return;
+  const live = S.games.filter(isLive);
+  const urgent = live.find(g => g.urgency);
+  const biggest = live.slice().sort((a, b) => lead(b) - lead(a))[0];
+  const focus = urgent || biggest || null;
+
+  let a1, a2;
+  if (urgent) {                       // something is latched — run hot
+    a1 = 'rgba(239,68,68,.20)';
+    a2 = 'rgba(251,191,36,.11)';
+  } else if (biggest && lead(biggest) >= 6) {
+    a1 = 'rgba(251,191,36,.15)';
+    a2 = 'rgba(145,132,217,.09)';
+  } else if (live.length) {
+    a1 = 'rgba(120,110,190,.14)';
+    a2 = 'rgba(60,140,190,.09)';
+  } else {                            // asleep / empty slate — barely there
+    a1 = 'rgba(120,120,150,.08)';
+    a2 = 'rgba(80,90,130,.06)';
+  }
+  // Third pool picks up the focus game's trailing-team color.
+  let a3 = 'rgba(90,90,150,.10)';
+  if (focus) {
+    const t = trailing(focus) || 'home';
+    a3 = hexToRgba(teamColor(focus[t + '_id']), urgent ? 0.16 : 0.11);
+  }
+  el.style.setProperty('--amb1', a1);
+  el.style.setProperty('--amb2', a2);
+  el.style.setProperty('--amb3', a3);
+}
+function hexToRgba(hex, alpha) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || ''));
+  if (!m) return 'rgba(120,120,150,' + alpha + ')';
+  return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + alpha + ')';
+}
+
 function renderMobile() {
+  updateAmbient();
   if (!document.body.classList.contains('mobile')) return;
   const scr = document.getElementById('m-screen');
   const nav = document.getElementById('m-tab');
