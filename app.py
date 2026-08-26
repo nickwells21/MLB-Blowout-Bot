@@ -33,6 +33,7 @@ def _run_bot_loop():
         f"[app] Background bot loop starting. Blowout threshold: "
         f"{bot.BLOWOUT_RUN_DIFF} runs, polling every {bot.POLL_INTERVAL_SECONDS}s."
     )
+    bot.notify_startup()
     alerted = state.load_alerted()
     while True:
         try:

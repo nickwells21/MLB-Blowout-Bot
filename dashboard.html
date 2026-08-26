@@ -495,13 +495,20 @@ function renderTeamCol(name, tag, isWinner, ladder, ml) {
   `;
 }
 
+function gameLead(g) {
+  return Math.abs((g.home_runs ?? 0) - (g.away_runs ?? 0));
+}
+
 function renderGames(snapshot) {
   const container = document.getElementById('games');
   if (!snapshot || !snapshot.games || snapshot.games.length === 0) {
     container.innerHTML = '<div class="empty">No live MLB games right now. Cards will appear here automatically once games are in progress.</div>';
     return;
   }
-  container.innerHTML = snapshot.games.map(renderGameCard).join('');
+  // Biggest lead first; re-sorted every refresh so the column re-orders
+  // itself as scores change instead of staying pinned to first-fetch order.
+  const sorted = [...snapshot.games].sort((a, b) => gameLead(b) - gameLead(a));
+  container.innerHTML = sorted.map(renderGameCard).join('');
 }
 
 function renderAlerts(alerts) {

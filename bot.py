@@ -55,6 +55,12 @@ RUN_DIFF_LATE = int(os.environ.get("RUN_DIFF_LATE", "4"))                  # inn
 # this tier bypasses MIN_INNING/RUN_DIFF entirely and fires as high priority.
 BULLPEN_EXHAUSTION_COUNT = int(os.environ.get("BULLPEN_EXHAUSTION_COUNT", "4"))
 
+# How often (seconds) to push a slate-wide summary, independent of any
+# individual alert. Rolling cadence from process start, not wall-clock-
+# aligned (i.e. "every hour on the hour" would need different logic).
+SUMMARY_INTERVAL_SECONDS = int(os.environ.get("SUMMARY_INTERVAL_SECONDS", "3600"))
+_last_summary_at = time.time()
+
 
 def _now_iso():
     from datetime import datetime, timezone
@@ -304,6 +310,44 @@ def _write_live_snapshot(game_pks):
     with open(paths.data_path("live_snapshot.json"), "w") as f:
         json.dump(payload, f, indent=2)
 
+    return payload
+
+
+def _maybe_send_hourly_summary(games):
+    """Push a slate-wide digest -- every live game, ranked biggest lead to
+    smallest (same ordering as the dashboard) -- on a rolling interval,
+    independent of whether any individual alert has fired. Lets you glance
+    at your phone instead of the dashboard to see where the whole slate
+    stands."""
+    global _last_summary_at
+    now = time.time()
+    if now - _last_summary_at < SUMMARY_INTERVAL_SECONDS:
+        return
+    _last_summary_at = now
+
+    if not games:
+        message = "No live MLB games right now."
+    else:
+        ranked = sorted(
+            games,
+            key=lambda g: abs((g.get("home_runs") or 0) - (g.get("away_runs") or 0)),
+            reverse=True,
+        )
+        lines = []
+        for g in ranked:
+            lead = abs((g.get("home_runs") or 0) - (g.get("away_runs") or 0))
+            inning_bit = g.get("inning_ordinal") or g.get("inning") or "?"
+            state_bit = g.get("inning_state") or ""
+            lines.append(
+                f"{g.get('away_team')} {g.get('away_runs', 0)} - "
+                f"{g.get('home_team')} {g.get('home_runs', 0)} "
+                f"({state_bit} {inning_bit}, lead {lead})".replace("  ", " ")
+            )
+        message = "\n".join(lines)
+
+    title = f"Hourly Slate Summary ({len(games)} live)"
+    notifier.send_alert(title, message, priority="default", tags="bar_chart")
+
 
 def run_once(alerted):
     from datetime import datetime
@@ -320,7 +364,24 @@ def run_once(alerted):
         except Exception as e:
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
-    _write_live_snapshot(game_pks)
+    snapshot_payload = _write_live_snapshot(game_pks)
+    _maybe_send_hourly_summary(snapshot_payload.get("games", []))
+
+
+def notify_startup():
+    """Fire a low-key confirmation push every time the bot process starts, so
+    activating it (either `python bot.py` or `python app.py`) gives immediate
+    proof of life instead of trusting a silent background process. Distinct
+    from real alerts: plain title, "default" priority, checkmark tag."""
+    title = "Bot Started"
+    message = (
+        "MLB Blowout Bot is online and sweeping today's live games.\n"
+        f"Blowout tier: inning>={MIN_INNING}, {RUN_DIFF_MID}+ runs (innings {MIN_INNING}-6) / "
+        f"{RUN_DIFF_LATE}+ runs (7+).\n"
+        f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning).\n"
+        f"Polling every {POLL_INTERVAL_SECONDS}s."
+    )
+    notifier.send_alert(title, message, priority="default", tags="white_check_mark")
 
 
 def main():
@@ -330,6 +391,7 @@ def main():
         f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning). "
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
+    notify_startup()
     alerted = state.load_alerted()
     try:
         while True:
