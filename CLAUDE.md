@@ -24,11 +24,11 @@ python bot.py
 python app.py
 # Open http://localhost:8090
 ```
-Either way it polls live games every `POLL_INTERVAL_SECONDS` (default 30) and pushes an alert the moment a position player takes the mound in a game that's a blowout by `BLOWOUT_RUN_DIFF` runs (default 6). `app.py` runs this same loop in a background thread and serves the dashboard over HTTP — this is the version deployed to Railway (see `Procfile`).
+Either way it polls live games every `POLL_INTERVAL_SECONDS` (default 30) and pushes an alert the moment a position player takes the mound. (`BLOWOUT_RUN_DIFF` no longer exists — the run-diff bar is `RUN_DIFF_MID`/`RUN_DIFF_LATE`, and it grades the alert rather than gating it.) `app.py` runs this same loop in a background thread and serves the dashboard over HTTP — this is the version deployed to Railway (see `Procfile`).
 
 **Rule hierarchy — read this before touching the tiers.**
 
-There is one signal that matters and five that support it.
+There is one signal that matters and six that support it.
 
 *TIER 0 — GOLDEN.* A position player is pitching. This is the entire premise
 of the bot. It **overrides every other rule and always fires** — `_classify`
@@ -47,12 +47,33 @@ anything a better spot than an 8th-inning one. `RUN_DIFF_MID`/`RUN_DIFF_LATE`
 still scale the required differential *down* after the 7th — that is a
 relaxation late, never a floor early. Do not reintroduce an inning gate.
 
-*TIER 1 — CONTEXT.* Big Lead Watch, Extreme Lead, Urgency Mode, Inning Change,
-Pitcher Change. These **do not gate Tier 0**. They exist to flag games where a
+*TIER 1 — CONTEXT.* Bullpen Depth, Big Lead Watch, Extreme Lead, Urgency Mode,
+Inning Change, Pitcher Change. These **do not gate Tier 0**. They exist to flag games where a
 position player is becoming likely, so you are already watching when it
 happens. Each runs through `_safe()` so one failing tier cannot suppress the
 others — a rate-limited ntfy push used to abort the whole game's checks,
 including the golden one.
+
+**The bullpen depth ladder** (`check_bullpen_depth`) is the escalation that
+leads into Tier 0. It fires on the trailing team's reliever count alone — no
+run-diff bar, no inning floor — once per rung per (game, side):
+
+| Relievers used | Alert | Priority |
+| --- | --- | --- |
+| `BULLPEN_EXHAUSTION_COUNT` (3) | Bullpen Exhausted | high |
+| `BULLPEN_CRITICAL_COUNT` (4) | Bullpen Exhausted — URGENT | urgent |
+| position player on the mound | **GOLDEN** (Tier 0) | urgent |
+
+The ladder stops at the critical rung; ongoing churn past it belongs to Pitcher
+Change. Two guards keep one substitution from pushing twice: if the arm that
+trips a rung *is* a position player the ladder stays silent and lets Tier 0 own
+the moment, and a rung that fires passes `suppress=True` into
+`check_pitcher_change` exactly as urgency-mode entry does. Both guards still
+mark the rung as alerted, so a suppressed rung can never fire late.
+
+Keys are `bullpen:{game_pk}:{side}:{rung}` in the persisted `alerted` set, so a
+restart mid-game does not re-announce a rung, and a lead change correctly starts
+a fresh ladder for the newly trailing team.
 
 `notifier.send_alert` catches `Exception`, not just `RequestException`, for the
 same reason: it is called from inside the golden path.

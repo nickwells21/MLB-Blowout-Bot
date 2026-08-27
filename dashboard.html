@@ -1146,13 +1146,13 @@ function requiredDiff(inning) {
 }
 function verdictOf(g) {
   const r = trailRelievers(g);
-  if (r >= thr('bullpen_exhaustion_count', 4) && lead(g) >= requiredDiff(g.inning)) return 'STRONG';
+  if (r >= thr('bullpen_exhaustion_count', 3) && lead(g) >= requiredDiff(g.inning)) return 'STRONG';
   if (g.urgency) return 'LEAN';
   return 'PASS';
 }
 function readiness(g) {
   const req = requiredDiff(g.inning) || 1;
-  const exh = thr('bullpen_exhaustion_count', 4) || 1;
+  const exh = thr('bullpen_exhaustion_count', 3) || 1;
   return 0.55 * Math.min(1, lead(g) / req) + 0.45 * Math.min(1, trailRelievers(g) / exh);
 }
 // Three MLB nicknames are two words. Taking only the last token turns
@@ -1294,7 +1294,7 @@ function mSleepBanner() {
 }
 function mFlaggedCard(g) {
   const v = verdictOf(g), t = trailing(g);
-  const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 4);
+  const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 3);
   const arm = t ? curArm(g, t) : null;
   const bt = betTeam(g);
   const sa = g.odds && (g.odds['spreads_' + (t === 'home' ? 'away' : 'home')] || [])[0];
@@ -1484,7 +1484,7 @@ function screenLive() {
   }
   out += live.map(g => {
     const r = readiness(g), pctRaw = r * 100;
-    const req = requiredDiff(g.inning), rel = trailRelievers(g), exh = thr('bullpen_exhaustion_count', 4);
+    const req = requiredDiff(g.inning), rel = trailRelievers(g), exh = thr('bullpen_exhaustion_count', 3);
     let cls = 'minus', fill = 'var(--n-bd4)';
     if (r > 0.95) { cls = 'best'; } else if (r > 0.6) { cls = ''; }
     let gate;
@@ -1550,7 +1550,7 @@ function screenGame() {
 }
 function gOverview(g) {
   const v = verdictOf(g), t = trailing(g);
-  const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 4);
+  const rel = trailRelievers(g), req = requiredDiff(g.inning), exh = thr('bullpen_exhaustion_count', 3);
   const bt = betTeam(g), ct = t ? g[t + '_team'] : null;
   let reason;
   if (isUpcoming(g)) reason = 'Not started. First pitch ' + (startClock(g) || 'TBD')
@@ -1582,9 +1582,9 @@ function gOverview(g) {
     + '</div></div>';
 }
 function gBotRead(g) {
-  const l = lead(g), rel = trailRelievers(g), req = requiredDiff(g.inning);
-  const exh = thr('bullpen_exhaustion_count', 4), bigT = thr('big_lead_threshold', 6), extT = thr('extreme_lead_threshold', 10);
-  const i = g.inning ?? 0;
+  const l = lead(g), rel = trailRelievers(g);
+  const exh = thr('bullpen_exhaustion_count', 3), crit = thr('bullpen_critical_count', 4);
+  const bigT = thr('big_lead_threshold', 6), extT = thr('extreme_lead_threshold', 10);
   const rows = [
     ['Big Lead Watch', l >= bigT && l < extT, 'lead ' + bigT + '+, any inning',
       l >= extT ? 'suppressed — Extreme owns ' + extT + '+' : 'repeats every +' + thr('big_lead_step', 3) + ' runs'],
@@ -1594,9 +1594,12 @@ function gBotRead(g) {
     ['Inning Change', !!g.urgency, 'half-inning flip, urgency only',
       g.urgency ? 'pushing every Top/Bottom' : 'dormant outside urgency'],
     ['Pitcher Change', l >= bigT, 'new trailing-team reliever', 'silent if the new arm is a position player'],
-    ['Blowout', l >= req, 'position player, ' + req + '+ run diff, any inning', 'no inning floor -- bar drops to ' + thr('run_diff_late', 4) + ' from the 7th'],
-    ['Bullpen Exhausted', rel >= exh, 'position player after ' + exh + '+ relievers',
-      rel >= exh ? 'bypasses inning and run-diff' : rel + ' of ' + exh + ' burned'],
+    ['Bullpen Exhausted', rel >= exh, exh + ' relievers used (high), ' + crit + ' (urgent)',
+      rel >= crit ? 'urgent rung reached -- ' + rel + ' burned'
+        : rel >= exh ? rel + ' burned, urgent at ' + crit
+        : rel + ' of ' + exh + ' burned -- no lead or inning gate'],
+    ['GOLDEN - Position Player', false, 'a field player takes the mound',
+      'always fires, overrides every rule above'],
   ];
   const interval = (S.status && S.status.poll_interval_seconds) || 30;
   return '<div class="m-intro" style="padding-top:14px">Seven tiers evaluate this game every ' + esc(interval)
@@ -1607,7 +1610,7 @@ function gBotRead(g) {
       + '<span class="st">' + (r[1] ? 'ARMED' : 'IDLE') + '</span></div>').join('')
     + '<div class="m-panel"><div class="m-kick">SUPPRESSION</div><div class="body">'
     + (g.urgency
-        ? 'Urgency is latched, so Pitcher Change and Inning Change borrow its label instead of firing their own. One push per substitution, never one per matching tier.'
+        ? 'Urgency is latched, so Pitcher Change and Inning Change borrow its label instead of firing their own. A bullpen rung suppresses Pitcher Change the same way. One push per substitution, never one per matching tier.'
         : 'No latch active. Big Lead owns leads ' + bigT + '–' + (extT - 1) + ' and hands off to Extreme at ' + extT + ' so the same run never pushes twice.')
     + '</div></div>';
 }
@@ -1806,8 +1809,9 @@ function screenRecord() {
     ['Urgency Mode', 'lead ' + thr('urgency_run_diff', 6) + '+ and ' + thr('urgency_min_relievers', 2) + '+ relievers, exits below ' + thr('urgency_exit_run_diff', 4), 'URGENT'],
     ['Inning Change', 'half-inning flip, urgency only', 'HIGH'],
     ['Pitcher Change', 'new trailing-team reliever once flagged', 'URGENT'],
-    ['Blowout', 'position player, ' + thr('run_diff_mid', 6) + '/' + thr('run_diff_late', 4) + ' run diff, any inning', 'HIGH'],
-    ['Bullpen Exhausted', 'position player after ' + thr('bullpen_exhaustion_count', 4) + '+ relievers', 'URGENT'],
+    ['Bullpen Exhausted', thr('bullpen_exhaustion_count', 3) + ' relievers used by the trailing team, any lead or inning', 'HIGH'],
+    ['Bullpen Exhausted - Urgent', thr('bullpen_critical_count', 4) + ' relievers used -- the state a position player comes out of', 'URGENT'],
+    ['GOLDEN - Position Player', 'a field player takes the mound -- always fires, overrides everything', 'URGENT'],
   ];
   let out = mHeader('Track record', '2026 season');
   out += '<div class="m-hero"><div class="m-kick2">HAND-MARKED, 2026 SEASON</div>'

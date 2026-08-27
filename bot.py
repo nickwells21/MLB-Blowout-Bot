@@ -19,8 +19,10 @@ Config (env vars, see .env.example):
     FAST_POLL_INTERVAL_SECONDS  tightened interval while a game is hot (default 15)
     RUN_DIFF_MID              run diff needed in innings 1-6 (default 6)
     RUN_DIFF_LATE             run diff needed in innings 7+ (default 4)
-    BULLPEN_EXHAUSTION_COUNT  prior relievers used that triggers the higher-priority
-                              "bullpen exhausted" tier, bypassing inning/run-diff (default 4)
+    BULLPEN_EXHAUSTION_COUNT  relievers used by the trailing team that fires the
+                              "Bullpen Exhausted" ping at high priority (default 3)
+    BULLPEN_CRITICAL_COUNT    relievers used that escalates the same ping to urgent
+                              (default 4)
 """
 import os
 import time
@@ -68,11 +70,19 @@ _fast_poll_active = False   # for transition logging + status.json
 RUN_DIFF_MID = int(os.environ.get("RUN_DIFF_MID", "6"))    # innings 1-6
 RUN_DIFF_LATE = int(os.environ.get("RUN_DIFF_LATE", "4"))                  # innings 7+
 
-# Bullpen exhaustion is a primary signal in its own right: if the losing
-# team already burned this many relievers before turning to a position
-# player, that's alert-worthy regardless of run differential -- this tier
-# bypasses RUN_DIFF entirely and fires as high priority.
-BULLPEN_EXHAUSTION_COUNT = int(os.environ.get("BULLPEN_EXHAUSTION_COUNT", "4"))
+# --- Bullpen depth ladder ---
+# Bullpen depth is a primary signal in its own right, not just a modifier on
+# the golden alert: a trailing team burning arm after arm is walking toward the
+# position-player move. Two rungs, each pushing once per game per side, on
+# reliever count ALONE -- no run-diff or inning gate:
+#
+#   BULLPEN_EXHAUSTION_COUNT relievers -> "Bullpen Exhausted", high priority
+#   BULLPEN_CRITICAL_COUNT   relievers -> same alert escalated to urgent
+#
+# The ladder ends there. Past the critical rung, ongoing churn is the pitcher-
+# change tier's job, and the position player himself is TIER 0.
+BULLPEN_EXHAUSTION_COUNT = int(os.environ.get("BULLPEN_EXHAUSTION_COUNT", "3"))
+BULLPEN_CRITICAL_COUNT = int(os.environ.get("BULLPEN_CRITICAL_COUNT", "4"))
 
 # How often (seconds) to push a slate-wide summary, independent of any
 # individual alert. Rolling cadence from process start, not wall-clock-
@@ -468,6 +478,89 @@ def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     )
 
 
+def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+    """TIER 1 -- the bullpen depth ladder for the trailing team.
+
+    Fires on reliever count alone. There is no run-diff bar and no inning
+    floor: a team four arms deep has told you something about the game no
+    matter what the scoreboard says, and gating this on a lead would silence
+    it in exactly the grind-it-out games where it is the only warning.
+
+      BULLPEN_EXHAUSTION_COUNT relievers -> "Bullpen Exhausted", high
+      BULLPEN_CRITICAL_COUNT   relievers -> same alert, urgent
+
+    One push per rung per (game, side), persisted in `alerted` so a restart
+    mid-game does not re-announce a rung already sent. Keyed by side so a lead
+    change correctly starts a fresh ladder for the newly trailing team.
+
+    Returns the rung that fired, so check_pitcher_change() can skip its own
+    push for the same substitution.
+    """
+    trailing = _trailing_side(linescore)
+    if trailing is None:
+        return  # tied -- nobody is conceding anything yet
+
+    relievers = _relievers_used(boxscore, trailing)
+    if relievers >= BULLPEN_CRITICAL_COUNT:
+        rung = BULLPEN_CRITICAL_COUNT
+    elif relievers >= BULLPEN_EXHAUSTION_COUNT:
+        rung = BULLPEN_EXHAUSTION_COUNT
+    else:
+        return
+
+    key = f"bullpen:{game_pk}:{trailing}:{rung}"
+    if key in alerted:
+        return
+    alerted.add(key)
+    # A bot that comes up mid-game already past both rungs should announce the
+    # rung the game is actually at, once -- not walk the ladder retroactively.
+    alerted.add(f"bullpen:{game_pk}:{trailing}:{BULLPEN_EXHAUSTION_COUNT}")
+
+    # If the arm that tripped this rung IS a position player, TIER 0 already
+    # owns the moment and says everything this ping would. Stay quiet, but keep
+    # the rung marked so it can't fire late.
+    pen = mlb_api.get_bullpen_detail(boxscore, trailing)
+    if pen and pen[-1].get("is_position_player"):
+        return
+
+    leading = "home" if trailing == "away" else "away"
+    leading_team = linescore[f"{leading}_name"]
+    trailing_team = linescore[f"{trailing}_name"]
+    lead = linescore[leading] - linescore[trailing]
+
+    if rung >= BULLPEN_CRITICAL_COUNT:
+        title = "Bullpen Exhausted - URGENT"
+        priority = "urgent"
+        tags = "rotating_light,fire"
+        closer = (
+            f"{trailing_team}: {relievers} relievers deep. This is the state a "
+            f"position player usually comes out of -- watch this game."
+        )
+    else:
+        title = "Bullpen Exhausted"
+        priority = "high"
+        tags = "warning,baseball"
+        closer = (
+            f"{trailing_team}: {relievers} relievers deep and running short of arms. "
+            f"Escalates to urgent at {BULLPEN_CRITICAL_COUNT}."
+        )
+
+    parts = [
+        f"{leading_team} {linescore[leading]} - {trailing_team} {linescore[trailing]}",
+        _format_inning_line(inning, inning_ordinal, inning_state, outs),
+        "",
+    ]
+    pen_line = _bullpen_state_line(boxscore, trailing)
+    if pen_line:
+        parts.append(pen_line)
+    parts.append(closer)
+    if lead > 0:
+        parts.append(f"{leading_team} lead: {lead}.")
+
+    notifier.send_alert(title, "\n".join(parts), priority=priority, tags=tags)
+    return rung
+
+
 def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, suppress=False):
     """Urgent, early-warning tier: once a game has been big-lead-flagged (by
     check_big_lead above), ping on EVERY new pitcher for the trailing team --
@@ -576,7 +669,8 @@ def _classify(hit, boxscore, linescore, inning):
     The tiers only grade how strong the betting case is:
 
       bullpen_exhausted  the losing team burned BULLPEN_EXHAUSTION_COUNT+
-                         relievers first. Strongest form of the concession
+                         relievers first -- the same bar the standalone
+                         bullpen ladder uses. Strongest form of the concession
                          signal; bypasses the inning/run-diff gate entirely.
       blowout            run differential clears the bar for the inning. There
                          is no inning floor -- the bar itself just drops later
@@ -632,10 +726,11 @@ def check_game(game_pk, alerted):
               and is isolated so no other tier's failure can suppress it. It
               always fires (see _classify) and overrides every gate.
 
-      TIER 1  CONTEXT -- big lead, extreme lead, urgency mode, inning change,
-              pitcher change. These do not gate the golden signal; they exist
-              to flag games where it is becoming likely, so the bettor is
-              already watching when it happens. Each runs in isolation.
+      TIER 1  CONTEXT -- bullpen depth, big lead, extreme lead, urgency mode,
+              inning change, pitcher change. These do not gate the golden
+              signal; they exist to flag games where it is becoming likely, so
+              the bettor is already watching when it happens. Each runs in
+              isolation.
     """
     boxscore = mlb_api.get_boxscore(game_pk)   # hard requirement for any check
     linescore = mlb_api.get_linescore(boxscore)
@@ -659,6 +754,8 @@ def check_game(game_pk, alerted):
     # double-alerting on overlapping buckets.
     entered_urgency = _safe("urgency_mode", check_urgency_mode,
         game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    bullpen_rung = _safe("bullpen_depth", check_bullpen_depth,
+        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
     _safe("extreme_lead", check_extreme_lead,
         game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
     _safe("big_lead", check_big_lead,
@@ -666,9 +763,11 @@ def check_game(game_pk, alerted):
     _safe("inning_change", check_inning_change,
         game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
         suppress=bool(entered_urgency))
+    # Both urgency entry and a bullpen rung already name the incoming pitcher,
+    # so the generic pitcher-change ping would be a second push for one move.
     _safe("pitcher_change", check_pitcher_change,
         game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
-        suppress=bool(entered_urgency))
+        suppress=bool(entered_urgency) or bool(bullpen_rung))
 
 
 def check_position_players(game_pk, boxscore, linescore, inning, inning_ordinal,
@@ -697,18 +796,18 @@ def check_position_players(game_pk, boxscore, linescore, inning, inning_ordinal,
         conceding_runs = linescore[conceding_side]
 
         if tier == "bullpen_exhausted":
-            title = "Bullpen Exhausted Alert"
+            title = "GOLDEN - Position Player (Bullpen Exhausted)"
             priority = "urgent"
             tags = "rotating_light,fire"
         elif tier == "blowout":
-            title = "Blowout Alert"
+            title = "GOLDEN - Position Player (Blowout)"
             priority = "high"
             tags = "baseball,rotating_light"
         else:
             # Catch-all. Still urgent on the phone -- a field player on the
             # mound is the whole point of the bot, and deciding it is not worth
             # a look is the bettor's call, not the bot's.
-            title = "Position Player Pitching"
+            title = "GOLDEN - Position Player Pitching"
             priority = "urgent"
             tags = "rotating_light,baseball"
 
@@ -863,7 +962,9 @@ def _hot_reasons(g):
     if away != home:
         trailing = "away" if home > away else "home"
         relievers = max(0, len(g.get(f"{trailing}_bullpen") or []) - 1)
-        if relievers >= BULLPEN_EXHAUSTION_COUNT:
+        if relievers >= BULLPEN_CRITICAL_COUNT:
+            reasons.append(f"bullpen critical ({relievers} used)")
+        elif relievers >= BULLPEN_EXHAUSTION_COUNT:
             reasons.append(f"bullpen exhausted ({relievers} used)")
 
     # Late and already past the blowout bar -- the classic concession window.
@@ -909,6 +1010,7 @@ def _write_status(live_game_count):
                 "run_diff_mid": RUN_DIFF_MID,
                 "run_diff_late": RUN_DIFF_LATE,
                 "bullpen_exhaustion_count": BULLPEN_EXHAUSTION_COUNT,
+                "bullpen_critical_count": BULLPEN_CRITICAL_COUNT,
                 "big_lead_threshold": BIG_LEAD_THRESHOLD,
                 "big_lead_step": BIG_LEAD_STEP,
                 "extreme_lead_threshold": EXTREME_LEAD_THRESHOLD,
@@ -1349,7 +1451,8 @@ def notify_startup():
         "MLB Blowout Bot is online and sweeping today's live games.\n"
         f"Blowout tier: {RUN_DIFF_MID}+ runs (innings 1-6) / "
         f"{RUN_DIFF_LATE}+ runs (7+).\n"
-        f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning).\n"
+        f"Bullpen Exhausted: {BULLPEN_EXHAUSTION_COUNT} relievers -> high, "
+        f"{BULLPEN_CRITICAL_COUNT} -> urgent (any inning, any lead).\n"
         f"Big Lead Watch: {BIG_LEAD_THRESHOLD}+ run lead, any inning, re-alerts every "
         f"{BIG_LEAD_STEP} runs.\n"
         f"Extreme Lead Alert: {EXTREME_LEAD_THRESHOLD}+ run lead, re-alerts every "
@@ -1382,7 +1485,8 @@ def main():
     print(
         f"MLB Blowout Bot starting. Blowout tier: "
         f"{RUN_DIFF_MID}+ runs (innings 1-6) / {RUN_DIFF_LATE}+ runs (7+), any inning. "
-        f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning). "
+        f"Bullpen Exhausted: {BULLPEN_EXHAUSTION_COUNT} relievers (high) / "
+        f"{BULLPEN_CRITICAL_COUNT} (urgent), any inning. "
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
     notify_startup()

@@ -31,8 +31,9 @@ Six distinct notification types, all pushed via ntfy.sh to topic `MLB_Bets-Blowo
 | **Urgency Mode ON/OFF** | Lead 6+ **AND** trailing team used 2+ relievers | urgent | Once per entry; exits below lead 4 |
 | **Inning Change** | Half-inning flips — **only while in Urgency Mode** | high | Every Top/Bottom transition |
 | **Pitcher Change** | New reliever for the trailing team, once a game is flagged | urgent | Every substitution |
-| **Blowout** | Position player pitches, inning ≥5, run diff scaled by inning | high | Once per player |
-| **Bullpen Exhausted** | Position player pitches after 4+ relievers already burned | urgent | Once per player |
+| **Bullpen Exhausted** | Trailing team has used **3** relievers — no lead or inning gate | high | Once per game per side |
+| **Bullpen Exhausted — URGENT** | Trailing team has used **4** relievers | urgent | Once per game per side |
+| **GOLDEN — Position Player** | A field player takes the mound. **Always fires, overrides every rule above** | urgent | Once per player |
 
 Plus an **Hourly Slate Summary** (every live game ranked by lead) and a **Bot Started** ping on every process start.
 
@@ -40,7 +41,9 @@ Plus an **Hourly Slate Summary** (every live game ranked by lead) and a **Bot St
 - Big Lead self-suppresses at 10+ so Extreme owns that range — no double-firing at lead 12.
 - Pitcher Change alerts pick their label from the strongest active state: **urgency > extreme > big lead**. One push per substitution, never one per matching tier.
 - The Urgency Mode entry message already names the incoming pitcher and current inning, so the Pitcher Change and Inning Change pushes are suppressed on that exact poll.
-- If the new arm is a *position player*, Pitcher Change stays silent and lets Blowout/Bullpen-Exhausted handle it.
+- If the new arm is a *position player*, both Pitcher Change and the Bullpen ladder stay silent and let the GOLDEN tier own the moment.
+- A bullpen rung that fires suppresses Pitcher Change on that same poll, exactly as Urgency Mode entry does. The rung is still marked as alerted, so a suppressed rung can never fire late.
+- The bullpen ladder is keyed per side, so a lead change starts a fresh ladder for the newly trailing team.
 
 ### Urgency Mode is a latched state, not an alert
 
@@ -111,11 +114,10 @@ The dashboard is a **static HTML file that polls three JSON endpoints every 15 s
     "last_scheduled_start": "2026-08-27T01:05:00+00:00",
     "next_wake": null
   },
-  "blowout_run_diff": 6,
-  "min_inning": 5,
   "run_diff_mid": 6,
   "run_diff_late": 4,
-  "bullpen_exhaustion_count": 4,
+  "bullpen_exhaustion_count": 3,
+  "bullpen_critical_count": 4,
   "big_lead_threshold": 6,
   "big_lead_step": 3,
   "extreme_lead_threshold": 10,
