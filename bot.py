@@ -16,6 +16,7 @@ Config (env vars, see .env.example):
     NTFY_TOPIC              ntfy.sh topic to push alerts to (required for push;
                              falls back to console-only if unset)
     POLL_INTERVAL_SECONDS    how often to poll live games (default 30)
+    FAST_POLL_INTERVAL_SECONDS  tightened interval while a game is hot (default 15)
     RUN_DIFF_MID              run diff needed in innings 1-6 (default 6)
     RUN_DIFF_LATE             run diff needed in innings 7+ (default 4)
     BULLPEN_EXHAUSTION_COUNT  prior relievers used that triggers the higher-priority
@@ -41,6 +42,19 @@ except ImportError:  # scheduling is optional -- fall back to 24/7 polling
     schedule = None
 
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
+
+# --- Adaptive polling ---
+# The poll interval IS the detection floor: a position player can be on the
+# mound for up to one interval before the bot sees them. When a game reaches a
+# state where that substitution is plausibly next, the loop tightens to
+# FAST_POLL_INTERVAL_SECONDS and stays there until no game qualifies -- which
+# in practice means until that game ends.
+#
+# This costs nothing in odds credits: odds are TTL-cached (300s main, 900s
+# alternates) independent of the loop, so only the free MLB Stats API sees the
+# extra calls.
+FAST_POLL_INTERVAL_SECONDS = int(os.environ.get("FAST_POLL_INTERVAL_SECONDS", "15"))
+_fast_poll_active = False   # for transition logging + status.json
 
 # --- Rule engine: run-differential only, NO inning floor ---
 # There is deliberately no minimum inning. The bet is that the winning side's
@@ -824,6 +838,64 @@ def _schedule_block():
     }
 
 
+def _hot_reasons(g):
+    """Why this live game deserves the faster poll, or [] if it doesn't.
+
+    Every condition reuses a threshold that already exists elsewhere in the
+    rulebook -- no new numbers to keep in sync. These are the states where a
+    position player is plausibly the next arm."""
+    if not g.get("is_live"):
+        return []
+
+    away, home = g.get("away_runs") or 0, g.get("home_runs") or 0
+    lead = abs(home - away)
+    inning = g.get("inning")
+    reasons = []
+
+    if g.get("urgency"):
+        reasons.append("urgency mode")
+
+    if lead >= EXTREME_LEAD_THRESHOLD:
+        reasons.append(f"extreme lead ({lead})")
+    elif lead >= BIG_LEAD_THRESHOLD:
+        reasons.append(f"big lead ({lead})")
+
+    if away != home:
+        trailing = "away" if home > away else "home"
+        relievers = max(0, len(g.get(f"{trailing}_bullpen") or []) - 1)
+        if relievers >= BULLPEN_EXHAUSTION_COUNT:
+            reasons.append(f"bullpen exhausted ({relievers} used)")
+
+    # Late and already past the blowout bar -- the classic concession window.
+    if inning is not None and inning >= 7 and lead >= RUN_DIFF_LATE:
+        reasons.append(f"late innings (inning {inning}, lead {lead})")
+
+    return reasons
+
+
+def _poll_interval_for(payload):
+    """Pick this cycle's sleep. Fast while ANY live game is hot; back to normal
+    as soon as none is -- which is what makes it revert when the game ends."""
+    global _fast_poll_active
+
+    hot = []
+    for g in (payload or {}).get("games", []):
+        why = _hot_reasons(g)
+        if why:
+            hot.append((f"{g.get('away_team')} @ {g.get('home_team')}", why))
+
+    if hot and not _fast_poll_active:
+        _fast_poll_active = True
+        print(f"[bot] FAST POLL on ({FAST_POLL_INTERVAL_SECONDS}s):")
+        for matchup, why in hot:
+            print(f"[bot]   {matchup} -- {', '.join(why)}")
+    elif not hot and _fast_poll_active:
+        _fast_poll_active = False
+        print(f"[bot] No hot games. Back to {POLL_INTERVAL_SECONDS}s polling.")
+
+    return FAST_POLL_INTERVAL_SECONDS if hot else POLL_INTERVAL_SECONDS
+
+
 def _write_status(live_game_count):
     import json
 
@@ -844,7 +916,12 @@ def _write_status(live_game_count):
                 "urgency_run_diff": URGENCY_RUN_DIFF,
                 "urgency_min_relievers": URGENCY_MIN_RELIEVERS,
                 "urgency_exit_run_diff": URGENCY_EXIT_RUN_DIFF,
-                "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                "poll_interval_seconds": (
+                    FAST_POLL_INTERVAL_SECONDS if _fast_poll_active else POLL_INTERVAL_SECONDS
+                ),
+                "base_poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                "fast_poll_interval_seconds": FAST_POLL_INTERVAL_SECONDS,
+                "fast_poll_active": _fast_poll_active,
             },
             f,
             indent=2,
@@ -1010,6 +1087,7 @@ def run_once(alerted):
     # only, so filter rather than reporting scheduled games as in progress.
     live_only = [g for g in snapshot_payload.get("games", []) if g.get("is_live")]
     _maybe_send_hourly_summary(live_only)
+    return snapshot_payload
 
 
 def _utcnow():
@@ -1120,9 +1198,9 @@ def run_scheduled(alerted):
             window = schedule.compute_window(today)
         except Exception as e:
             print(f"[bot] Schedule lookup failed ({e}); polling once and retrying.")
-            run_once(alerted)
+            payload = run_once(alerted)
             state.save_alerted(alerted)
-            time.sleep(POLL_INTERVAL_SECONDS)
+            time.sleep(_poll_interval_for(payload))
             continue
 
         _current_window = window
@@ -1150,12 +1228,13 @@ def run_scheduled(alerted):
         # API calls; never misses a playoff blowout.
         if _is_placeholder_window(window):
             _bot_state = "scanning"
+            payload = None
             try:
-                run_once(alerted)
+                payload = run_once(alerted)
                 state.save_alerted(alerted)
             except Exception as e:
                 print(f"[bot] Poll error: {e}")
-            time.sleep(POLL_INTERVAL_SECONDS)
+            time.sleep(_poll_interval_for(payload))
             continue
 
         # Games today but first pitch hasn't landed yet.
@@ -1180,24 +1259,26 @@ def run_scheduled(alerted):
         # request -- keeps September call-ups on record without a restart.
         _ensure_roster()
         _bot_state = "scanning"
+        payload = None
         try:
-            run_once(alerted)
+            payload = run_once(alerted)
             state.save_alerted(alerted)
         except Exception as e:
             print(f"[bot] Poll error: {e}")
-        time.sleep(POLL_INTERVAL_SECONDS)
+        time.sleep(_poll_interval_for(payload))
 
 
 def run_unscheduled(alerted):
     """Legacy 24/7 loop, used when SCHEDULE_ENABLED is off or schedule.py is
     unavailable."""
     while True:
+        payload = None
         try:
-            run_once(alerted)
+            payload = run_once(alerted)
             state.save_alerted(alerted)
         except Exception as e:
             print(f"[bot] Poll error: {e}")
-        time.sleep(POLL_INTERVAL_SECONDS)
+        time.sleep(_poll_interval_for(payload))
 
 
 def _ensure_season_schedule(max_age_hours=24):
