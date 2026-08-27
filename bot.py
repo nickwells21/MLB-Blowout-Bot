@@ -1097,7 +1097,10 @@ def run_scheduled(alerted):
             _sleep_until(target, f"past backstop, next slate {target_day}")
             continue
 
-        # Inside the window: normal polling.
+        # Inside the window: normal polling. The roster check is an in-memory
+        # timestamp comparison except at most once a day, when it does one
+        # request -- keeps September call-ups on record without a restart.
+        _ensure_roster()
         _bot_state = "scanning"
         try:
             run_once(alerted)
@@ -1147,8 +1150,27 @@ def _ensure_season_schedule(max_age_hours=24):
         print(f"[bot] Season schedule refresh failed (non-fatal): {e}")
 
 
+def _ensure_roster(max_age_hours=24):
+    """Keep the league-wide primary-position record fresh. The record is what
+    the position-player detector runs against; a daily sweep picks up call-ups
+    and trades (September roster expansion especially). Non-fatal on failure:
+    the lazy per-player lookup in mlb_api still covers anyone missing."""
+    from datetime import datetime, timezone
+
+    last = mlb_api.positions_refreshed_at()
+    if last:
+        try:
+            age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 3600
+            if age_h < max_age_hours:
+                return
+        except ValueError:
+            pass
+    mlb_api.refresh_league_positions()
+
+
 def run_loop(alerted):
     """Entrypoint shared by bot.py standalone and app.py's background thread."""
+    _ensure_roster()
     if SCHEDULE_ENABLED and schedule is not None:
         _ensure_season_schedule()
         run_scheduled(alerted)

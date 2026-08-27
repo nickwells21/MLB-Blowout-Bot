@@ -19,17 +19,25 @@ BASE = "https://statsapi.mlb.com/api/v1"
 # memory, and on disk so a restart does not refetch hundreds of players.
 POSITIONS_FILE = paths.data_path("player_positions.json")
 _primary_pos = None
+_positions_refreshed_at = None  # ISO string, None if never swept
 
 
 def _load_positions():
-    global _primary_pos
+    global _primary_pos, _positions_refreshed_at
     if _primary_pos is not None:
         return _primary_pos
     _primary_pos = {}
     if os.path.exists(POSITIONS_FILE):
         try:
             with open(POSITIONS_FILE, "r") as f:
-                _primary_pos = {int(k): v for k, v in json.load(f).items()}
+                data = json.load(f)
+            if isinstance(data, dict) and "players" in data:
+                _positions_refreshed_at = data.get("refreshed_at")
+                _primary_pos = {int(k): v for k, v in data["players"].items()}
+            else:
+                # Pre-sweep flat format ({id: {...}}): usable, but counts as
+                # never having done a full league sweep.
+                _primary_pos = {int(k): v for k, v in data.items()}
         except (OSError, ValueError, TypeError) as e:
             print(f"[mlb_api] Could not read {POSITIONS_FILE}: {e}")
             _primary_pos = {}
@@ -39,9 +47,65 @@ def _load_positions():
 def _save_positions():
     try:
         with open(POSITIONS_FILE, "w") as f:
-            json.dump(_primary_pos, f, indent=2)
+            json.dump(
+                {"refreshed_at": _positions_refreshed_at, "players": _primary_pos},
+                f,
+                indent=2,
+            )
     except OSError as e:
         print(f"[mlb_api] Could not write {POSITIONS_FILE}: {e}")
+
+
+def positions_refreshed_at():
+    """ISO timestamp of the last full league sweep, or None."""
+    _load_positions()
+    return _positions_refreshed_at
+
+
+def refresh_league_positions(season=None):
+    """Full league roster sweep: ONE request to /sports/1/players returns every
+    MLB player for the season with their primaryPosition. This is the record
+    the detector runs against -- the boxscore's own position field relabels a
+    position player as "P" the moment they take the mound, so it must never be
+    used as the label.
+
+    Merges into the permanent cache (never clears it: a player who appeared
+    earlier but has since been outrighted should keep resolving). Returns the
+    number of players now on record, or None on failure -- callers treat a
+    failed sweep as non-fatal because the lazy per-game lookup still works."""
+    global _positions_refreshed_at
+    from datetime import datetime, timezone
+
+    if season is None:
+        # The season is the ET year -- a January sweep of "next year" 404s
+        # gracefully into an empty list, which we treat as failure, not truth.
+        from zoneinfo import ZoneInfo
+
+        season = datetime.now(ZoneInfo("America/New_York")).year
+    cache = _load_positions()
+    try:
+        resp = requests.get(
+            f"{BASE}/sports/1/players", params={"season": season}, timeout=30
+        )
+        resp.raise_for_status()
+        people = resp.json().get("people", [])
+    except requests.RequestException as e:
+        print(f"[mlb_api] League roster sweep failed (non-fatal): {e}")
+        return None
+    if not people:
+        print(f"[mlb_api] League roster sweep returned no players for {season}; keeping existing record.")
+        return None
+    for person in people:
+        pos = person.get("primaryPosition") or {}
+        if pos.get("abbreviation"):
+            cache[person["id"]] = {
+                "abbreviation": pos.get("abbreviation"),
+                "name": pos.get("name"),
+            }
+    _positions_refreshed_at = datetime.now(timezone.utc).isoformat()
+    _save_positions()
+    print(f"[mlb_api] League roster sweep: {len(people)} players, {len(cache)} on record.")
+    return len(cache)
 
 
 def get_primary_positions(person_ids):
