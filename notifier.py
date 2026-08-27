@@ -30,5 +30,9 @@ def send_alert(title, message, priority="urgent", tags="baseball,rotating_light"
             },
             timeout=10,
         )
-    except requests.RequestException as e:
+    except Exception as e:
+        # Deliberately broad. A push failure of ANY kind (network, encoding, a
+        # malformed header) must not propagate: this is called from inside the
+        # golden position-player path, and an exception here would abort the
+        # rest of that alert and every tier after it.
         print(f"[notifier] Failed to send push notification: {e}")

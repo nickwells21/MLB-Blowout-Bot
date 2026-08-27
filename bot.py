@@ -593,33 +593,70 @@ def _classify(hit, boxscore, linescore, inning):
     return "position_player", run_diff, prior_relievers
 
 
+def _safe(label, fn, *args, **kwargs):
+    """Run one tier in isolation. A tier that raises must never take the others
+    down with it -- least of all the golden check."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        print(f"[bot] Tier '{label}' failed (continuing): {e}")
+        return None
+
+
 def check_game(game_pk, alerted):
-    boxscore = mlb_api.get_boxscore(game_pk)
+    """One poll of one game.
+
+    Rule hierarchy, deliberately ordered:
+
+      TIER 0  GOLDEN -- a position player is pitching. This is the event the
+              bot exists for. It runs FIRST, needs nothing but the boxscore,
+              and is isolated so no other tier's failure can suppress it. It
+              always fires (see _classify) and overrides every gate.
+
+      TIER 1  CONTEXT -- big lead, extreme lead, urgency mode, inning change,
+              pitcher change. These do not gate the golden signal; they exist
+              to flag games where it is becoming likely, so the bettor is
+              already watching when it happens. Each runs in isolation.
+    """
+    boxscore = mlb_api.get_boxscore(game_pk)   # hard requirement for any check
     linescore = mlb_api.get_linescore(boxscore)
-    detail = mlb_api.get_linescore_detail(game_pk)
+
+    # Inning context is best-effort. A linescore failure degrades the golden
+    # alert's wording (inning unknown) but must never cost us the alert.
+    detail = _safe("linescore_detail", mlb_api.get_linescore_detail, game_pk) or {}
     inning = detail.get("inning")
     inning_ordinal = detail.get("inning_ordinal")
     inning_state = detail.get("inning_state")
     outs = detail.get("outs")
 
-    # Order matters. Urgency mode latches first so the inning/pitcher checks
-    # below see the current mode state. Extreme runs before big-lead because
+    # ---- TIER 0: GOLDEN, first and isolated ----
+    _safe("golden/position_player", check_position_players,
+          game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+
+    # ---- TIER 1: context signals ----
+    # Order within the tier matters. Urgency latches first so the inning and
+    # pitcher checks see the current mode. Extreme runs before big-lead because
     # big-lead self-suppresses inside extreme territory, keeping the two from
     # double-alerting on overlapping buckets.
-    entered_urgency = check_urgency_mode(
-        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted
-    )
-    check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    check_inning_change(
+    entered_urgency = _safe("urgency_mode", check_urgency_mode,
+        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    _safe("extreme_lead", check_extreme_lead,
+        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    _safe("big_lead", check_big_lead,
+        game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    _safe("inning_change", check_inning_change,
         game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
-        suppress=bool(entered_urgency),
-    )
-    check_pitcher_change(
+        suppress=bool(entered_urgency))
+    _safe("pitcher_change", check_pitcher_change,
         game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
-        suppress=bool(entered_urgency),
-    )
+        suppress=bool(entered_urgency))
 
+
+def check_position_players(game_pk, boxscore, linescore, inning, inning_ordinal,
+                           inning_state, outs, alerted):
+    """TIER 0 -- the golden signal. A field player on the mound overrides every
+    other rule and always pushes; _classify only grades how strong the betting
+    case is. Deduped per (game, player) so one appearance pushes once."""
     hits = mlb_api.find_position_players_pitching(boxscore)
     if not hits:
         return
@@ -711,7 +748,10 @@ def check_game(game_pk, alerted):
 
         home_team = linescore["home_name"]
         away_team = linescore["away_name"]
-        odds_snapshot = odds.fetch_for_alert(home_team, away_team)
+        # Odds are a nice-to-have on the golden alert. If the book is down or
+        # out of quota we still push -- the line can be looked up by hand, a
+        # missed concession cannot be recovered.
+        odds_snapshot = _safe("golden/odds", odds.fetch_for_alert, home_team, away_team)
 
         if odds_snapshot:
             bet_spread = odds_snapshot.get(f"spread_{bet_side}")
@@ -741,7 +781,10 @@ def check_game(game_pk, alerted):
 
         print(f"\n=== ALERT [{tier}] ===\n{title}\n{message}\n")
         notifier.send_alert(title, message, priority=priority, tags=tags)
-        alert_log.append(
+        # Mark alerted immediately after the push. Logging is bookkeeping; if
+        # it fails we must not re-push the same appearance on the next poll.
+        alerted.add(key)
+        _safe("golden/alert_log", alert_log.append,
             {
                 "timestamp": _now_iso(),
                 "game_pk": game_pk,
@@ -759,7 +802,6 @@ def check_game(game_pk, alerted):
                 "odds_at_alert": odds_snapshot,
             }
         )
-        alerted.add(key)
 
 
 def _iso_or_none(dt):

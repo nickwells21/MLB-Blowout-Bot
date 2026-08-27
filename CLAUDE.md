@@ -26,6 +26,36 @@ python app.py
 ```
 Either way it polls live games every `POLL_INTERVAL_SECONDS` (default 30) and pushes an alert the moment a position player takes the mound in a game that's a blowout by `BLOWOUT_RUN_DIFF` runs (default 6). `app.py` runs this same loop in a background thread and serves the dashboard over HTTP — this is the version deployed to Railway (see `Procfile`).
 
+**Rule hierarchy — read this before touching the tiers.**
+
+There is one signal that matters and five that support it.
+
+*TIER 0 — GOLDEN.* A position player is pitching. This is the entire premise
+of the bot. It **overrides every other rule and always fires** — `_classify`
+never returns None; the tiers below it (`bullpen_exhausted`, `blowout`,
+`position_player`) only grade how strong the betting case is. Two rules protect
+it structurally: it runs **first** in `check_game`, before anything that can
+fail, and needs nothing but the boxscore. Everything it touches afterwards
+(odds, alert log) is wrapped in `_safe()` so a dependency failure degrades the
+message instead of losing the push. Never move this below the context tiers,
+and never add a gate that can return no alert.
+
+*TIER 1 — CONTEXT.* Big Lead Watch, Extreme Lead, Urgency Mode, Inning Change,
+Pitcher Change. These **do not gate Tier 0**. They exist to flag games where a
+position player is becoming likely, so you are already watching when it
+happens. Each runs through `_safe()` so one failing tier cannot suppress the
+others — a rate-limited ntfy push used to abort the whole game's checks,
+including the golden one.
+
+`notifier.send_alert` catches `Exception`, not just `RequestException`, for the
+same reason: it is called from inside the golden path.
+
+**Detection depends on roster position, never in-game position.** See
+`mlb_api.find_position_players_pitching` — the boxscore relabels a position
+player as "P" the moment they take the mound, so the boxscore field is useless
+for this exact question. `player_positions.json` holds the league-wide record
+(~1,413 players), swept once a day.
+
 **Game-window scheduling:** The bot does not run 24/7. Each cycle it asks
 `schedule.py` for the current Eastern-time day's window, then sleeps until ~5
 minutes before first pitch, polls every `POLL_INTERVAL_SECONDS` until every game
