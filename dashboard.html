@@ -1570,7 +1570,7 @@ function gOverview(g) {
     +   '<div style="text-align:right"><div class="m-kick2">CONCEDING SIDE</div>'
     +   '<div style="font-size:12.5px;color:var(--n-tx2);margin-top:3px">' + esc(ct ? nick(ct) : '—') + '</div></div></div></div>'
     + '<div class="m-sec"><div class="m-kick">DISTANCE TO TRIGGER</div><div style="margin-top:11px">'
-    +   meter('Run differential', lead(g), req, 'Innings 7+ drop the requirement to ' + thr('run_diff_late', 4) + '.')
+    +   meter('Run differential', lead(g), req, 'No inning floor. Innings 7+ drop the bar to ' + thr('run_diff_late', 4) + '.')
     +   meter('Relievers burned', rel, exh, Math.max(0, exh - rel) + ' more and the exhaustion gate opens.')
     +   meter('Urgency latch', g.urgency ? 1 : 0, 1, 'Pushes on every half-inning and every trailing-team arm. Exits below lead ' + thr('urgency_exit_run_diff', 4) + '.')
     + '</div></div>'
@@ -1584,7 +1584,7 @@ function gOverview(g) {
 function gBotRead(g) {
   const l = lead(g), rel = trailRelievers(g), req = requiredDiff(g.inning);
   const exh = thr('bullpen_exhaustion_count', 4), bigT = thr('big_lead_threshold', 6), extT = thr('extreme_lead_threshold', 10);
-  const i = g.inning ?? 0, minI = thr('min_inning', 5);
+  const i = g.inning ?? 0;
   const rows = [
     ['Big Lead Watch', l >= bigT && l < extT, 'lead ' + bigT + '+, any inning',
       l >= extT ? 'suppressed — Extreme owns ' + extT + '+' : 'repeats every +' + thr('big_lead_step', 3) + ' runs'],
@@ -1594,7 +1594,7 @@ function gBotRead(g) {
     ['Inning Change', !!g.urgency, 'half-inning flip, urgency only',
       g.urgency ? 'pushing every Top/Bottom' : 'dormant outside urgency'],
     ['Pitcher Change', l >= bigT, 'new trailing-team reliever', 'silent if the new arm is a position player'],
-    ['Blowout', i >= minI && l >= req, 'position player, inning ' + minI + '+, scaled diff', 'needs ' + req + ' at inning ' + (i || '?')],
+    ['Blowout', l >= req, 'position player, ' + req + '+ run diff, any inning', 'no inning floor -- bar drops to ' + thr('run_diff_late', 4) + ' from the 7th'],
     ['Bullpen Exhausted', rel >= exh, 'position player after ' + exh + '+ relievers',
       rel >= exh ? 'bypasses inning and run-diff' : rel + ' of ' + exh + ' burned'],
   ];
@@ -1806,7 +1806,7 @@ function screenRecord() {
     ['Urgency Mode', 'lead ' + thr('urgency_run_diff', 6) + '+ and ' + thr('urgency_min_relievers', 2) + '+ relievers, exits below ' + thr('urgency_exit_run_diff', 4), 'URGENT'],
     ['Inning Change', 'half-inning flip, urgency only', 'HIGH'],
     ['Pitcher Change', 'new trailing-team reliever once flagged', 'URGENT'],
-    ['Blowout', 'position player, inning ' + thr('min_inning', 5) + '+, ' + thr('run_diff_mid', 6) + '/' + thr('run_diff_late', 4) + ' scaled diff', 'HIGH'],
+    ['Blowout', 'position player, ' + thr('run_diff_mid', 6) + '/' + thr('run_diff_late', 4) + ' run diff, any inning', 'HIGH'],
     ['Bullpen Exhausted', 'position player after ' + thr('bullpen_exhaustion_count', 4) + '+ relievers', 'URGENT'],
   ];
   let out = mHeader('Track record', '2026 season');

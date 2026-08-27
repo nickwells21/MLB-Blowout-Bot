@@ -17,8 +17,7 @@ Config (env vars, see .env.example):
                              falls back to console-only if unset)
     BLOWOUT_RUN_DIFF         minimum run differential to consider it a blowout (default 6)
     POLL_INTERVAL_SECONDS    how often to poll live games (default 30)
-    MIN_INNING               floor inning for the ordinary blowout tier (default 5)
-    RUN_DIFF_MID              run diff needed in innings MIN_INNING-6 (default = BLOWOUT_RUN_DIFF)
+    RUN_DIFF_MID              run diff needed in innings 1-6 (default = BLOWOUT_RUN_DIFF)
     RUN_DIFF_LATE             run diff needed in innings 7+ (default 4)
     BULLPEN_EXHAUSTION_COUNT  prior relievers used that triggers the higher-priority
                               "bullpen exhausted" tier, bypassing inning/run-diff (default 4)
@@ -45,19 +44,22 @@ except ImportError:  # scheduling is optional -- fall back to 24/7 polling
 BLOWOUT_RUN_DIFF = int(os.environ.get("BLOWOUT_RUN_DIFF", "6"))
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
 
-# --- Rule engine v2 (inning-aware + bullpen-exhaustion tier) ---
-# A flat run-diff knob doesn't distinguish a 6-run lead in the 3rd (nothing)
-# from a 6-run lead in the 8th (real). MIN_INNING is a hard floor: the
-# ordinary "blowout" tier never fires before this inning. RUN_DIFF_MID/LATE
-# scale the required run differential down as the game gets later.
-MIN_INNING = int(os.environ.get("MIN_INNING", "5"))
-RUN_DIFF_MID = int(os.environ.get("RUN_DIFF_MID", str(BLOWOUT_RUN_DIFF)))  # innings MIN_INNING-6
+# --- Rule engine: run-differential only, NO inning floor ---
+# There is deliberately no minimum inning. The bet is that the winning side's
+# spread WIDENS from the moment of concession, so an early concession leaves
+# MORE innings for that to happen, not fewer -- gating on inning would silence
+# the most valuable version of the signal.
+#
+# RUN_DIFF_MID/LATE still scale the required differential DOWN as the game gets
+# later (a 4-run lead in the 9th is as conceded as a 6-run lead in the 3rd).
+# That is a relaxation, never a floor.
+RUN_DIFF_MID = int(os.environ.get("RUN_DIFF_MID", str(BLOWOUT_RUN_DIFF)))  # innings 1-6
 RUN_DIFF_LATE = int(os.environ.get("RUN_DIFF_LATE", "4"))                  # innings 7+
 
 # Bullpen exhaustion is a primary signal in its own right: if the losing
 # team already burned this many relievers before turning to a position
-# player, that's alert-worthy regardless of inning or run differential --
-# this tier bypasses MIN_INNING/RUN_DIFF entirely and fires as high priority.
+# player, that's alert-worthy regardless of run differential -- this tier
+# bypasses RUN_DIFF entirely and fires as high priority.
 BULLPEN_EXHAUSTION_COUNT = int(os.environ.get("BULLPEN_EXHAUSTION_COUNT", "4"))
 
 # How often (seconds) to push a slate-wide summary, independent of any
@@ -563,13 +565,13 @@ def _classify(hit, boxscore, linescore, inning):
       bullpen_exhausted  the losing team burned BULLPEN_EXHAUSTION_COUNT+
                          relievers first. Strongest form of the concession
                          signal; bypasses the inning/run-diff gate entirely.
-      blowout            ordinary inning-scaled tier (inning >= MIN_INNING and
-                         a run differential that scales down as it gets late).
-      position_player    catch-all. The gates did not clear, but a field player
-                         is pitching and that is the event this bot exists to
-                         see. Missing it because the run differential was one
-                         short, or because it happened in the 4th, would be
-                         worse than an extra push.
+      blowout            run differential clears the bar for the inning. There
+                         is no inning floor -- the bar itself just drops later
+                         in the game.
+      position_player    catch-all. The run-diff bar did not clear, but a field
+                         player is pitching and that is the event this bot
+                         exists to see. Missing it because the differential was
+                         one short would be worse than an extra push.
 
     Returns (tier, run_diff, prior_relievers).
     """
@@ -587,7 +589,11 @@ def _classify(hit, boxscore, linescore, inning):
     if run_diff > 0:
         if prior_relievers >= BULLPEN_EXHAUSTION_COUNT:
             return "bullpen_exhausted", run_diff, prior_relievers
-        if inning is not None and inning >= MIN_INNING and run_diff >= required_run_diff_for_inning(inning):
+        # No inning floor. The bet is the winning side's spread WIDENING, and a
+        # concession in the 3rd leaves more innings for that to happen than one
+        # in the 8th -- an early inning is if anything a point in the bet's
+        # favour, so it must never downgrade the tier.
+        if run_diff >= required_run_diff_for_inning(inning):
             return "blowout", run_diff, prior_relievers
 
     return "position_player", run_diff, prior_relievers
@@ -711,15 +717,10 @@ def check_position_players(game_pk, boxscore, linescore, inning, inning_ordinal,
             )
 
         if tier == "position_player" and losing:
-            # Say exactly which gate missed, so the push is self-explaining.
+            # Only the run differential can hold a tier back now -- say so, so
+            # the push explains its own confidence. Inning is never a reason.
             needed = required_run_diff_for_inning(inning)
-            if inning is not None and inning < MIN_INNING:
-                description += (
-                    f" Note: only the {inning_ordinal or inning} -- earlier than the "
-                    f"inning-{MIN_INNING} floor the blowout tier needs, so treat the line "
-                    f"move as less certain."
-                )
-            elif run_diff < needed:
+            if run_diff < needed:
                 description += (
                     f" Note: {run_diff}-run lead is short of the {needed} this inning "
                     f"normally needs, and only {prior_relievers} reliever(s) were used."
@@ -835,7 +836,6 @@ def _write_status(live_game_count):
                 "bot_state": _bot_state,
                 "schedule": _schedule_block(),
                 "blowout_run_diff": BLOWOUT_RUN_DIFF,
-                "min_inning": MIN_INNING,
                 "run_diff_mid": RUN_DIFF_MID,
                 "run_diff_late": RUN_DIFF_LATE,
                 "bullpen_exhaustion_count": BULLPEN_EXHAUSTION_COUNT,
@@ -1268,7 +1268,7 @@ def notify_startup():
     title = "Bot Started"
     message = (
         "MLB Blowout Bot is online and sweeping today's live games.\n"
-        f"Blowout tier: inning>={MIN_INNING}, {RUN_DIFF_MID}+ runs (innings {MIN_INNING}-6) / "
+        f"Blowout tier: {RUN_DIFF_MID}+ runs (innings 1-6) / "
         f"{RUN_DIFF_LATE}+ runs (7+).\n"
         f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning).\n"
         f"Big Lead Watch: {BIG_LEAD_THRESHOLD}+ run lead, any inning, re-alerts every "
@@ -1301,8 +1301,8 @@ def notify_startup():
 
 def main():
     print(
-        f"MLB Blowout Bot starting. Blowout tier: inning>={MIN_INNING}, "
-        f"{RUN_DIFF_MID}+ runs (innings {MIN_INNING}-6) / {RUN_DIFF_LATE}+ runs (7+). "
+        f"MLB Blowout Bot starting. Blowout tier: "
+        f"{RUN_DIFF_MID}+ runs (innings 1-6) / {RUN_DIFF_LATE}+ runs (7+), any inning. "
         f"Bullpen-exhausted tier: {BULLPEN_EXHAUSTION_COUNT}+ prior relievers (any inning). "
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )

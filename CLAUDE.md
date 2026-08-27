@@ -40,6 +40,13 @@ fail, and needs nothing but the boxscore. Everything it touches afterwards
 message instead of losing the push. Never move this below the context tiers,
 and never add a gate that can return no alert.
 
+**There is no minimum inning, deliberately.** The bet is the winning side's
+spread *widening* from the moment of concession, so an early concession leaves
+more innings for that to happen, not fewer. A 3rd-inning position player is if
+anything a better spot than an 8th-inning one. `RUN_DIFF_MID`/`RUN_DIFF_LATE`
+still scale the required differential *down* after the 7th — that is a
+relaxation late, never a floor early. Do not reintroduce an inning gate.
+
 *TIER 1 — CONTEXT.* Big Lead Watch, Extreme Lead, Urgency Mode, Inning Change,
 Pitcher Change. These **do not gate Tier 0**. They exist to flag games where a
 position player is becoming likely, so you are already watching when it
