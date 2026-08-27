@@ -15,9 +15,8 @@ Usage:
 Config (env vars, see .env.example):
     NTFY_TOPIC              ntfy.sh topic to push alerts to (required for push;
                              falls back to console-only if unset)
-    BLOWOUT_RUN_DIFF         minimum run differential to consider it a blowout (default 6)
     POLL_INTERVAL_SECONDS    how often to poll live games (default 30)
-    RUN_DIFF_MID              run diff needed in innings 1-6 (default = BLOWOUT_RUN_DIFF)
+    RUN_DIFF_MID              run diff needed in innings 1-6 (default 6)
     RUN_DIFF_LATE             run diff needed in innings 7+ (default 4)
     BULLPEN_EXHAUSTION_COUNT  prior relievers used that triggers the higher-priority
                               "bullpen exhausted" tier, bypassing inning/run-diff (default 4)
@@ -41,7 +40,6 @@ try:
 except ImportError:  # scheduling is optional -- fall back to 24/7 polling
     schedule = None
 
-BLOWOUT_RUN_DIFF = int(os.environ.get("BLOWOUT_RUN_DIFF", "6"))
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
 
 # --- Rule engine: run-differential only, NO inning floor ---
@@ -53,7 +51,7 @@ POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
 # RUN_DIFF_MID/LATE still scale the required differential DOWN as the game gets
 # later (a 4-run lead in the 9th is as conceded as a 6-run lead in the 3rd).
 # That is a relaxation, never a floor.
-RUN_DIFF_MID = int(os.environ.get("RUN_DIFF_MID", str(BLOWOUT_RUN_DIFF)))  # innings 1-6
+RUN_DIFF_MID = int(os.environ.get("RUN_DIFF_MID", "6"))    # innings 1-6
 RUN_DIFF_LATE = int(os.environ.get("RUN_DIFF_LATE", "4"))                  # innings 7+
 
 # Bullpen exhaustion is a primary signal in its own right: if the losing
@@ -548,9 +546,10 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
 
 def required_run_diff_for_inning(inning):
     """Run differential needed to trigger the ordinary 'blowout' tier at a
-    given inning. Falls back to BLOWOUT_RUN_DIFF if inning is unknown."""
+    given inning. An unknown inning uses the early-game bar -- the same value
+    innings 1-6 use, so the two can never silently disagree."""
     if inning is None:
-        return BLOWOUT_RUN_DIFF
+        return RUN_DIFF_MID
     if inning <= 6:
         return RUN_DIFF_MID
     return RUN_DIFF_LATE
@@ -835,7 +834,6 @@ def _write_status(live_game_count):
                 "live_games": live_game_count,
                 "bot_state": _bot_state,
                 "schedule": _schedule_block(),
-                "blowout_run_diff": BLOWOUT_RUN_DIFF,
                 "run_diff_mid": RUN_DIFF_MID,
                 "run_diff_late": RUN_DIFF_LATE,
                 "bullpen_exhaustion_count": BULLPEN_EXHAUSTION_COUNT,

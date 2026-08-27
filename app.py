@@ -30,8 +30,9 @@ _started_lock = threading.Lock()
 
 def _run_bot_loop():
     print(
-        f"[app] Background bot loop starting. Blowout threshold: "
-        f"{bot.BLOWOUT_RUN_DIFF} runs, polling every {bot.POLL_INTERVAL_SECONDS}s. "
+        f"[app] Background bot loop starting. Run-diff bar: "
+        f"{bot.RUN_DIFF_MID} early / {bot.RUN_DIFF_LATE} from the 7th, "
+        f"polling every {bot.POLL_INTERVAL_SECONDS}s. "
         f"Game-window scheduling: {'on' if bot.SCHEDULE_ENABLED else 'off'}."
     )
     bot.notify_startup()
