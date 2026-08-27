@@ -1,7 +1,91 @@
 """Thin wrapper around the free MLB Stats API (statsapi.mlb.com). No API key required."""
+import json
+import os
+
 import requests
 
+import paths
+
 BASE = "https://statsapi.mlb.com/api/v1"
+
+# --- Roster position cache -------------------------------------------------
+# A boxscore's `position` field is what a player is playing RIGHT NOW, not who
+# they are. The instant a position player takes the mound MLB relabels them
+# "P", which makes the boxscore useless for the one question this bot exists to
+# answer. `primaryPosition` from /people is the roster position and is the only
+# field that stays truthful.
+#
+# Primary positions do not change mid-season, so they are cached hard: in
+# memory, and on disk so a restart does not refetch hundreds of players.
+POSITIONS_FILE = paths.data_path("player_positions.json")
+_primary_pos = None
+
+
+def _load_positions():
+    global _primary_pos
+    if _primary_pos is not None:
+        return _primary_pos
+    _primary_pos = {}
+    if os.path.exists(POSITIONS_FILE):
+        try:
+            with open(POSITIONS_FILE, "r") as f:
+                _primary_pos = {int(k): v for k, v in json.load(f).items()}
+        except (OSError, ValueError, TypeError) as e:
+            print(f"[mlb_api] Could not read {POSITIONS_FILE}: {e}")
+            _primary_pos = {}
+    return _primary_pos
+
+
+def _save_positions():
+    try:
+        with open(POSITIONS_FILE, "w") as f:
+            json.dump(_primary_pos, f, indent=2)
+    except OSError as e:
+        print(f"[mlb_api] Could not write {POSITIONS_FILE}: {e}")
+
+
+def get_primary_positions(person_ids):
+    """{person_id: {'abbreviation','name'}} for each id, from the roster rather
+    than the live boxscore. Batched (the /people endpoint takes many ids at
+    once) and cached permanently. Ids that cannot be resolved are simply absent
+    from the result -- callers must handle that rather than assuming a hit."""
+    cache = _load_positions()
+    missing = sorted({int(i) for i in person_ids if i is not None} - set(cache))
+    if missing:
+        fetched = 0
+        for i in range(0, len(missing), 40):
+            chunk = missing[i:i + 40]
+            try:
+                resp = requests.get(
+                    f"{BASE}/people",
+                    params={"personIds": ",".join(str(x) for x in chunk)},
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                for person in resp.json().get("people", []):
+                    pos = person.get("primaryPosition") or {}
+                    if pos.get("abbreviation"):
+                        cache[person["id"]] = {
+                            "abbreviation": pos.get("abbreviation"),
+                            "name": pos.get("name"),
+                        }
+                        fetched += 1
+            except requests.RequestException as e:
+                # Transient failure: leave these uncached so the next poll
+                # retries. Never write a guess into the cache.
+                print(f"[mlb_api] Primary-position lookup failed for {len(chunk)} id(s): {e}")
+        if fetched:
+            _save_positions()
+    return {i: cache[i] for i in (int(x) for x in person_ids if x is not None) if i in cache}
+
+
+def is_position_player(person_id, fallback_abbr=None):
+    """True when this player's ROSTER position is not pitcher. Falls back to the
+    boxscore abbreviation only when the roster lookup is unavailable, which
+    preserves the old (blind) behaviour rather than inventing an alert."""
+    pos = get_primary_positions([person_id]).get(int(person_id)) if person_id is not None else None
+    abbr = (pos or {}).get("abbreviation") or fallback_abbr
+    return abbr is not None and abbr not in ("P", "TWP")
 
 
 def get_live_game_pks(date_str):
@@ -30,10 +114,28 @@ def get_boxscore(game_pk):
 def find_position_players_pitching(boxscore):
     """
     Scan a boxscore for players who have appeared as pitcher this game but whose
-    real position is not pitcher (and not a legitimate two-way player).
+    ROSTER position is not pitcher (and not a legitimate two-way player).
+
+    The check must run against primaryPosition from /people, not the boxscore's
+    own position field: the boxscore reports what a player is doing right now,
+    so the moment a position player takes the mound it relabels them "P" --
+    which hid every single real event from the old implementation (verified
+    across Aug 24-26: Johnston RF, Acuna SS, Pages C, Vivas 3B, all shown as
+    "P" in their boxscores).
 
     Returns a list of dicts: {side, player_id, name, real_position}
     """
+    # One batched lookup for every pitcher in the game (cached after first hit).
+    all_ids = []
+    for side in ("away", "home"):
+        team = boxscore["teams"][side]
+        players = team.get("players", {})
+        for pid in team.get("pitchers", []):
+            player = players.get(f"ID{pid}")
+            if player:
+                all_ids.append(player["person"]["id"])
+    roster_pos = get_primary_positions(all_ids)
+
     hits = []
     for side in ("away", "home"):
         team = boxscore["teams"][side]
@@ -42,15 +144,25 @@ def find_position_players_pitching(boxscore):
             player = players.get(f"ID{pid}")
             if not player:
                 continue
-            position = player.get("position", {})
-            abbr = position.get("abbreviation")
+            person_id = player["person"]["id"]
+            primary = roster_pos.get(person_id)
+            if primary is not None:
+                abbr = primary.get("abbreviation")
+                pos_name = primary.get("name", "Unknown")
+            else:
+                # Roster lookup unavailable (API hiccup): fall back to the
+                # boxscore field. Misses stay possible in this state, but no
+                # false alerts are invented.
+                box_position = player.get("position", {})
+                abbr = box_position.get("abbreviation")
+                pos_name = box_position.get("name", "Unknown")
             if abbr not in ("P", "TWP"):
                 hits.append(
                     {
                         "side": side,
                         "player_id": pid,
                         "name": player["person"]["fullName"],
-                        "real_position": position.get("name", "Unknown"),
+                        "real_position": pos_name,
                     }
                 )
     return hits
@@ -105,17 +217,29 @@ def get_bullpen_detail(boxscore, side):
     team = boxscore["teams"][side]
     pitcher_ids = team.get("pitchers", [])
     players = team.get("players", {})
+    person_ids = [
+        players[f"ID{pid}"]["person"]["id"]
+        for pid in pitcher_ids
+        if players.get(f"ID{pid}")
+    ]
+    roster_pos = get_primary_positions(person_ids)
     detail = []
     for idx, pid in enumerate(pitcher_ids):
         player = players.get(f"ID{pid}")
         if not player:
             continue
         pitching = player.get("stats", {}).get("pitching", {}) or {}
+        primary = roster_pos.get(player["person"]["id"]) or {}
+        box_abbr = player.get("position", {}).get("abbreviation")
+        real_abbr = primary.get("abbreviation") or box_abbr
         detail.append(
             {
                 "player_id": pid,
                 "name": player.get("person", {}).get("fullName", "Unknown"),
-                "position": player.get("position", {}).get("abbreviation"),
+                # Roster position -- shows "3B" for a position player pitching,
+                # where the boxscore field would claim "P".
+                "position": real_abbr,
+                "is_position_player": real_abbr not in ("P", "TWP") if real_abbr else False,
                 "innings_pitched": pitching.get("inningsPitched"),
                 "pitches": pitching.get("numberOfPitches"),
                 "is_current": idx == len(pitcher_ids) - 1,

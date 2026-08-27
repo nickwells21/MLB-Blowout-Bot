@@ -500,8 +500,13 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
     new_pitcher = team.get("players", {}).get(f"ID{pitcher_ids[-1]}")
     if not new_pitcher:
         return
-    position_abbr = new_pitcher.get("position", {}).get("abbreviation")
-    if position_abbr not in ("P", "TWP"):
+    # Roster position, not boxscore position -- the boxscore relabels a
+    # position player as "P" the moment they take the mound, which is exactly
+    # the case this guard exists for.
+    if mlb_api.is_position_player(
+        new_pitcher.get("person", {}).get("id"),
+        fallback_abbr=new_pitcher.get("position", {}).get("abbreviation"),
+    ):
         # A position player just entered -- that's the Blowout/Bullpen-
         # Exhausted tier's job. Don't double-alert the same event.
         return
