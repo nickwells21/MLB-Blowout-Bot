@@ -555,13 +555,23 @@ def required_run_diff_for_inning(inning):
 
 
 def _classify(hit, boxscore, linescore, inning):
-    """Decide whether a position-player-pitching event clears an alert tier.
+    """Decide which tier a position-player-pitching event fires at.
 
-    Returns (tier, run_diff, prior_relievers). tier is None if nothing fired.
-    "bullpen_exhausted" bypasses the inning/run-diff gate entirely -- burning
-    through the bullpen before resorting to a position player is treated as
-    the strongest form of the concession signal. "blowout" is the ordinary,
-    inning-scaled tier.
+    A position player on the mound ALWAYS signals -- this never returns None.
+    The tiers only grade how strong the betting case is:
+
+      bullpen_exhausted  the losing team burned BULLPEN_EXHAUSTION_COUNT+
+                         relievers first. Strongest form of the concession
+                         signal; bypasses the inning/run-diff gate entirely.
+      blowout            ordinary inning-scaled tier (inning >= MIN_INNING and
+                         a run differential that scales down as it gets late).
+      position_player    catch-all. The gates did not clear, but a field player
+                         is pitching and that is the event this bot exists to
+                         see. Missing it because the run differential was one
+                         short, or because it happened in the 4th, would be
+                         worse than an extra push.
+
+    Returns (tier, run_diff, prior_relievers).
     """
     conceding_side = hit["side"]
     bet_side = "home" if conceding_side == "away" else "away"
@@ -574,17 +584,13 @@ def _classify(hit, boxscore, linescore, inning):
     # player) -- subtract them to get relievers actually burned beforehand.
     prior_relievers = mlb_api.count_pitchers_used(boxscore, conceding_side) - 1
 
-    if run_diff <= 0:
-        # Not actually losing right now -- no concession signal either way.
-        return None, run_diff, prior_relievers
+    if run_diff > 0:
+        if prior_relievers >= BULLPEN_EXHAUSTION_COUNT:
+            return "bullpen_exhausted", run_diff, prior_relievers
+        if inning is not None and inning >= MIN_INNING and run_diff >= required_run_diff_for_inning(inning):
+            return "blowout", run_diff, prior_relievers
 
-    if prior_relievers >= BULLPEN_EXHAUSTION_COUNT:
-        return "bullpen_exhausted", run_diff, prior_relievers
-
-    if inning is not None and inning >= MIN_INNING and run_diff >= required_run_diff_for_inning(inning):
-        return "blowout", run_diff, prior_relievers
-
-    return None, run_diff, prior_relievers
+    return "position_player", run_diff, prior_relievers
 
 
 def check_game(game_pk, alerted):
@@ -623,9 +629,9 @@ def check_game(game_pk, alerted):
         if key in alerted:
             continue
 
+        # _classify never returns None -- a field player on the mound always
+        # signals, the tier only grades how strong the betting case is.
         tier, run_diff, prior_relievers = _classify(hit, boxscore, linescore, inning)
-        if tier is None:
-            continue
 
         conceding_side = hit["side"]
         bet_side = "home" if conceding_side == "away" else "away"
@@ -638,18 +644,50 @@ def check_game(game_pk, alerted):
             title = "Bullpen Exhausted Alert"
             priority = "urgent"
             tags = "rotating_light,fire"
-        else:
+        elif tier == "blowout":
             title = "Blowout Alert"
             priority = "high"
             tags = "baseball,rotating_light"
+        else:
+            # Catch-all. Still urgent on the phone -- a field player on the
+            # mound is the whole point of the bot, and deciding it is not worth
+            # a look is the bettor's call, not the bot's.
+            title = "Position Player Pitching"
+            priority = "urgent"
+            tags = "rotating_light,baseball"
 
         inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
 
-        description = (
-            f"{hit['name']} ({hit['real_position']}) is pitching for {conceding_team}. "
-            f"{conceding_team} has conceded -- consider betting {bet_team}'s spread to "
-            f"increase (cover a bigger number) from here."
-        )
+        losing = run_diff > 0
+        description = f"{hit['name']} ({hit['real_position']}) is pitching for {conceding_team}. "
+        if losing:
+            description += (
+                f"{conceding_team} has conceded -- consider betting {bet_team}'s spread to "
+                f"increase (cover a bigger number) from here."
+            )
+        else:
+            # Tied or ahead: not a concession, so do not dress it up as a bet.
+            description += (
+                f"{conceding_team} is not trailing, so this is not the usual concession "
+                f"signal -- most likely an extra-innings or emergency situation. Worth a look, "
+                f"not an automatic bet."
+            )
+
+        if tier == "position_player" and losing:
+            # Say exactly which gate missed, so the push is self-explaining.
+            needed = required_run_diff_for_inning(inning)
+            if inning is not None and inning < MIN_INNING:
+                description += (
+                    f" Note: only the {inning_ordinal or inning} -- earlier than the "
+                    f"inning-{MIN_INNING} floor the blowout tier needs, so treat the line "
+                    f"move as less certain."
+                )
+            elif run_diff < needed:
+                description += (
+                    f" Note: {run_diff}-run lead is short of the {needed} this inning "
+                    f"normally needs, and only {prior_relievers} reliever(s) were used."
+                )
+
         if tier == "bullpen_exhausted":
             description += f" {prior_relievers} reliever(s) already used before this move."
         elif prior_relievers:
