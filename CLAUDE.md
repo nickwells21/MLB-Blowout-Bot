@@ -48,11 +48,59 @@ still scale the required differential *down* after the 7th — that is a
 relaxation late, never a floor early. Do not reintroduce an inning gate.
 
 *TIER 1 — CONTEXT.* Bullpen Depth, Big Lead Watch, Extreme Lead, Urgency Mode,
-Inning Change, Pitcher Change. These **do not gate Tier 0**. They exist to flag games where a
+Inning Report, Pitcher Change. These **do not gate Tier 0**. They exist to flag games where a
 position player is becoming likely, so you are already watching when it
 happens. Each runs through `_safe()` so one failing tier cannot suppress the
 others — a rate-limited ntfy push used to abort the whole game's checks,
 including the golden one.
+
+**Send order is data, not call order.** A phone stack shows the newest push on
+top, so whatever is sent *last* is what you see. That used to be decided by the
+order `check_game()` happened to call the tiers, which put the low-value inning
+ping on top of the bullpen-exhaustion ping it should sit under (user-reported),
+and — worse — put GOLDEN, which correctly runs first, at the very bottom.
+
+Tiers no longer push. They write into an `AlertBus`, which flushes the poll's
+batch sorted by `ALERT_RANK` in **ascending importance**, so the most important
+alert is sent last and lands on top:
+
+```
+urgency_off 10 < inning_digest 20 < big_lead 30 < extreme_lead 40
+  < urgency_on 50 < pitcher_change 60 < bullpen_exhausted 70
+  < bullpen_critical 80 < golden 100
+```
+
+Computation order and send order are now separate concerns, which is what lets
+GOLDEN be **computed first** (nothing that can fail may precede it) *and* **sent
+last** (nothing may cover it) — two requirements that are contradictory as long
+as a tier pushes the instant it decides to. The flush sits in a `finally`, and
+each send is individually isolated, so neither a tier escaping `_safe()` nor a
+rate-limited push can drop the golden alert queued behind it.
+
+Adding a tier means adding a rank. Forgetting is safe by construction: an
+unregistered kind sorts below everything (`UNRANKED_ALERT_RANK`) and logs a
+warning, so a new tier can never bury a critical one wherever its call lands.
+
+**Routine per-inning traffic is consolidated.** `check_inning_report` sends ONE
+push per half-inning carrying the inning, the current lead (and its delta since
+the previous report), and the trailing team's bullpen state. Big Lead Watch
+folds into it via `merge_into` when both land on the same poll — and into the
+Urgency Mode ON message, which already prints the same header. Extreme Lead
+deliberately does **not** fold: a lead running away is escalation, not routine,
+and it outranks the report. Mid-inning, Big Lead and Extreme Lead still push
+immediately and separately, so a lead that jumps between innings is never held
+back to the next boundary. A fold whose target isn't in the batch emits on its
+own, so consolidation can never silently drop an alert.
+
+The report is suppressed when Urgency Mode entry or a bullpen rung fired on the
+same poll — both already carry score, inning and bullpen state. `_last_half_inning`
+is advanced by `consume_inning_change()` at the top of every poll, before any
+tier can raise, so a suppressed or folded boundary can never re-fire later.
+
+The hourly slate summary is held back a poll when any game alert fired in the
+same cycle — it is sent after the per-game batches and would otherwise sit on
+top of them. The clock is not advanced, so it goes out on the next quiet poll
+rather than being skipped.
 
 **The bullpen depth ladder** (`check_bullpen_depth`) is the escalation that
 leads into Tier 0. It fires on the trailing team's reliever count alone — no
@@ -67,9 +115,10 @@ run-diff bar, no inning floor — once per rung per (game, side):
 The ladder stops at the critical rung; ongoing churn past it belongs to Pitcher
 Change. Two guards keep one substitution from pushing twice: if the arm that
 trips a rung *is* a position player the ladder stays silent and lets Tier 0 own
-the moment, and a rung that fires passes `suppress=True` into
-`check_pitcher_change` exactly as urgency-mode entry does. Both guards still
-mark the rung as alerted, so a suppressed rung can never fire late.
+the moment, and a rung that fires passes `suppress=True` into both
+`check_pitcher_change` and `check_inning_report`, exactly as urgency-mode entry
+does. Both guards still mark the rung as alerted, so a suppressed rung can never
+fire late.
 
 Keys are `bullpen:{game_pk}:{side}:{rung}` in the persisted `alerted` set, so a
 restart mid-game does not re-announce a rung, and a lead change correctly starts
