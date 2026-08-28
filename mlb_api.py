@@ -239,6 +239,8 @@ def get_linescore(boxscore):
         team = boxscore["teams"][side]
         result[side] = team.get("teamStats", {}).get("batting", {}).get("runs", 0)
         result[f"{side}_name"] = team["team"]["name"]
+        # Team id rides along free and lets callers look up the roster.
+        result[f"{side}_id"] = team["team"].get("id")
     return result
 
 

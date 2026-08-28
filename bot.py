@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import alert_log
+import bullpen
 import mlb_api
 import notifier
 import odds
@@ -457,6 +458,10 @@ def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     pen_line = _bullpen_state_line(boxscore, trailing)
     if pen_line:
         parts.append(pen_line)
+    left_line = _remaining_line(boxscore, trailing,
+                                linescore.get(f"{trailing}_id"))
+    if left_line:
+        parts.append(left_line)
     parts.append("")
     parts.append("Now reporting EVERY half-inning and EVERY pitcher change in this game.")
 
@@ -951,6 +956,27 @@ def _classify(hit, boxscore, linescore, inning):
     return "position_player", run_diff, prior_relievers
 
 
+def _remaining_line(boxscore, side, team_id):
+    """One line on what the trailing team still has to run out there.
+
+    This is the read the alert was missing: how many relievers have gone tells
+    you where the game has been, what is LEFT tells you whether the lead keeps
+    growing -- which is the actual bet. Never raises; an unavailable roster
+    means "unknown", never "nobody left".
+    """
+    if not team_id:
+        return None
+    r = _safe("remaining_pen", bullpen.get_remaining, boxscore, side, team_id)
+    if not r or not r.get("count"):
+        return None
+    bits = [f"{r['count']} arm(s) left", r["verdict"]]
+    if r.get("combined_era") is not None:
+        bits.append(f"{r['combined_era']} combined ERA")
+    if r.get("attack_count"):
+        bits.append(f"{r['attack_count']} attackable")
+    return "Pen left: " + " - ".join(bits)
+
+
 def _safe(label, fn, *args, **kwargs):
     """Run one tier in isolation. A tier that raises must never take the others
     down with it -- least of all the golden check."""
@@ -1400,6 +1426,7 @@ def _write_live_snapshot(game_pks, alerted=None):
                 "batting_side": None, "fielding_side": None,
                 "batter": None, "on_deck": None, "current_pitcher": None,
                 "innings": [], "defense": {},
+                "away_remaining": None, "home_remaining": None,
                 "odds": None,
                 "urgency": bool(alerted) and _in_urgency(pk, alerted),
             }
@@ -1436,6 +1463,15 @@ def _write_live_snapshot(game_pks, alerted=None):
                     "on_deck": detail.get("on_deck"),
                     "current_pitcher": detail.get("current_pitcher"),
                     "innings": detail.get("innings") or [],
+                    # What each side still has in the pen, graded. Rosters and
+                    # season lines are cached for the day, so this adds no
+                    # per-poll requests.
+                    "away_remaining": _safe(
+                        "remaining/away", bullpen.get_remaining,
+                        box, "away", entry.get("away_id")),
+                    "home_remaining": _safe(
+                        "remaining/home", bullpen.get_remaining,
+                        box, "home", entry.get("home_id")),
                     # Position players currently on the field -- the pool the
                     # trailing team would pull from to send someone to pitch.
                     "defense": detail.get("defense") or {},
