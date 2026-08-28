@@ -151,6 +151,136 @@ _current_window = None
 # count per (game_pk, trailing_side), used to detect a fresh substitution.
 _last_pitcher_count = {}
 
+# In-memory only: the lead reported by the last inning report for a game, so
+# the next one can say how far the lead moved between them.
+_last_digest_lead = {}
+
+
+# --- Notification ordering ---------------------------------------------------
+# A phone's notification stack shows the MOST RECENT push on top, so whatever
+# is sent LAST is what you actually see. That made send order the real priority
+# system -- and until this ladder existed, send order was just the order the
+# tiers happened to be called in inside check_game(). Two things went wrong as
+# a direct result:
+#
+#   * the inning-change ping was called after the bullpen ladder, so the
+#     low-value "it's the top of the 7th" push landed on top of the
+#     bullpen-exhausted push it was supposed to sit under (user-reported), and
+#   * the GOLDEN push was called first -- correctly, it must be computed before
+#     anything that can fail -- which put the single most important alert this
+#     bot produces at the BOTTOM of the stack.
+#
+# So ordering is now explicit data, not call position. Tiers no longer push;
+# they describe an alert to the AlertBus, which sorts by this rank and emits in
+# ASCENDING importance so the most important push is sent last and lands on top.
+# Higher rank = more important = sent later = higher on the phone.
+#
+# Adding a tier means adding a rank here. Forgetting to is safe by construction:
+# unranked alerts sort below everything, so a new tier can never bury a critical
+# one no matter where its call is placed in check_game().
+ALERT_RANK = {
+    "urgency_off": 10,        # informational, the game stopped being interesting
+    "inning_digest": 20,      # routine per-inning traffic
+    "big_lead": 30,
+    "extreme_lead": 40,
+    "urgency_on": 50,
+    "pitcher_change": 60,     # bullpen is actually moving
+    "bullpen_exhausted": 70,  # the ladder into TIER 0
+    "bullpen_critical": 80,
+    "golden": 100,            # TIER 0. Nothing outranks it, ever.
+}
+UNRANKED_ALERT_RANK = 0
+
+
+class AlertBus:
+    """Collects everything one poll of one game wants to say, then sends it in
+    ascending ALERT_RANK order.
+
+    Tiers call bus.add() instead of notifier.send_alert(). Nothing leaves the
+    process until flush(), which is what makes the ordering a property of the
+    ladder above rather than of the order check_game() happens to call things.
+
+    Two behaviours beyond sorting:
+      * merge_into -- routine traffic can fold itself into a consolidated push
+        going out on the same poll instead of being a second push. It names
+        candidate targets in preference order and folds into the first one
+        actually in the batch; if none is (not an inning boundary, or the
+        target raised), the alert emits on its own. Folding can never silently
+        lose an alert.
+      * per-alert isolation on send -- one push failing must not drop the ones
+        queued behind it, least of all the golden one at the top.
+    """
+
+    def __init__(self):
+        self._pending = []
+
+    def add(self, kind, title, message, priority="default", tags="baseball",
+            merge_into=None, merge_line=None):
+        rank = ALERT_RANK.get(kind)
+        if rank is None:
+            print(
+                f"[bot] Alert kind '{kind}' is not in ALERT_RANK -- sending it as "
+                f"lowest importance. Add it to the ladder."
+            )
+            rank = UNRANKED_ALERT_RANK
+        self._pending.append(
+            {
+                "kind": kind,
+                "rank": rank,
+                "title": title,
+                "message": message,
+                "priority": priority,
+                "tags": tags,
+                "merge_into": merge_into,
+                "merge_line": merge_line,
+            }
+        )
+
+    def has(self, kind):
+        return any(a["kind"] == kind for a in self._pending)
+
+    def kinds(self):
+        return [a["kind"] for a in self._pending]
+
+    def _fold(self):
+        """Fold merge_into alerts into the first candidate target present."""
+        by_kind = {a["kind"]: a for a in self._pending}
+        kept = []
+        for alert in self._pending:
+            wanted = alert.get("merge_into") or ()
+            if isinstance(wanted, str):
+                wanted = (wanted,)
+            target = next(
+                (by_kind[k] for k in wanted if k in by_kind and by_kind[k] is not alert),
+                None,
+            )
+            if target is None:
+                kept.append(alert)
+                continue
+            line = alert.get("merge_line") or alert["message"]
+            target["message"] = f"{target['message']}\n\n{line}"
+        self._pending = kept
+
+    def flush(self):
+        """Send the batch, least important first. Returns the kinds actually
+        sent, in send order."""
+        self._fold()
+        # Stable sort: same-rank alerts keep the order the tiers computed them
+        # in (several golden hits in one poll stay chronological).
+        ordered = sorted(self._pending, key=lambda a: a["rank"])
+        self._pending = []
+        sent = []
+        for alert in ordered:
+            try:
+                notifier.send_alert(
+                    alert["title"], alert["message"],
+                    priority=alert["priority"], tags=alert["tags"],
+                )
+                sent.append(alert["kind"])
+            except Exception as e:
+                print(f"[bot] Push failed for '{alert['kind']}' (continuing): {e}")
+        return sent
+
 
 def _now_iso():
     from datetime import datetime, timezone
@@ -221,7 +351,7 @@ def _bullpen_state_line(boxscore, side):
     return f"On the mound: {' - '.join(bits)} ({max(0, len(pen) - 1)} reliever(s) used)"
 
 
-def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus):
     """Latch a game into (or out of) urgency mode and announce the transition.
 
     Entry: lead >= URGENCY_RUN_DIFF AND the trailing team has already used
@@ -242,7 +372,9 @@ def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inn
         # Tied. Only meaningful if we were previously in the mode.
         if already_in:
             alerted.discard(key)
-            notifier.send_alert(
+            _last_digest_lead.pop(game_pk, None)
+            bus.add(
+                "urgency_off",
                 "Urgency Mode Off",
                 f"{linescore['away_name']} {linescore['away']} - "
                 f"{linescore['home_name']} {linescore['home']}\n\n"
@@ -261,7 +393,9 @@ def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     if already_in:
         if lead < URGENCY_EXIT_RUN_DIFF:
             alerted.discard(key)
-            notifier.send_alert(
+            _last_digest_lead.pop(game_pk, None)
+            bus.add(
+                "urgency_off",
                 "Urgency Mode Off",
                 f"{leading_team} {linescore[leading]} - {trailing_team} {linescore[trailing]}\n\n"
                 f"Lead is back down to {lead}. No longer tracking every inning/pitcher change.",
@@ -286,23 +420,33 @@ def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     if pen_line:
         parts.append(pen_line)
     parts.append("")
-    parts.append("Now pinging on EVERY half-inning and EVERY pitcher change in this game.")
+    parts.append("Now reporting EVERY half-inning and EVERY pitcher change in this game.")
 
-    notifier.send_alert(
+    bus.add(
+        "urgency_on",
         "Urgency Mode ON",
         "\n".join(parts),
         priority="urgent",
         tags="rotating_light,stopwatch",
     )
+    _last_digest_lead[game_pk] = lead
     return True
 
 
-def check_inning_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, suppress=False):
-    """Urgency-mode-only: ping on every half-inning transition. Fires on Top
-    and Bottom only -- MLB also reports "Middle"/"End" between halves, which
-    would double the notification volume without adding information."""
+def consume_inning_change(game_pk, inning, inning_state):
+    """Advance the half-inning baseline and report whether it just flipped.
+
+    Split out of the old check_inning_change so the baseline advances on EVERY
+    poll, before anything decides whether to push. That is the existing
+    "advance the baseline even when suppressing" discipline, made unconditional:
+    an inning boundary that is folded, suppressed or gated can never come back
+    on the next poll.
+
+    Only Top and Bottom count. MLB also reports "Middle"/"End" between halves,
+    which would double the notification volume without adding information.
+    """
     if inning is None or inning_state not in ("Top", "Bottom"):
-        return
+        return False
 
     marker = (inning, inning_state)
     baseline = _last_half_inning.get(game_pk)
@@ -310,11 +454,35 @@ def check_inning_change(game_pk, boxscore, linescore, inning, inning_ordinal, in
 
     # Unchanged, or first sighting after a restart -- re-seed without firing.
     if baseline is None or baseline == marker:
+        return False
+    return True
+
+
+def check_inning_report(game_pk, boxscore, linescore, inning, inning_ordinal,
+                        inning_state, outs, alerted, bus, changed, suppress=False):
+    """The routine per-inning push, consolidated into ONE notification.
+
+    An inning boundary used to produce an inning-change ping and, on the same
+    poll, whatever lead ping the scoreboard happened to trip -- separate pushes
+    competing for the top of the stack. This is now a single digest carrying
+    the three things worth knowing at an inning boundary: the inning, the
+    current lead (and how far it moved since the last report), and the trailing
+    team's bullpen state -- relievers used, who is on the mound, pitch count.
+
+    Big Lead Watch folds into this push when both land on the same poll (see
+    AlertBus.merge_into). Extreme Lead deliberately does NOT: a lead actively
+    running away is escalation, not routine traffic, and it outranks this.
+
+    Unchanged from before: urgency-mode only, once per Top/Bottom transition.
+    """
+    if not changed:
         return
     if not _in_urgency(game_pk, alerted):
         return
-    # Mode-entry message already carries the score/inning/bullpen state --
-    # baseline is advanced above, so skipping here costs no future ping.
+    # Suppressed when a higher-ranked push on this same poll already says
+    # everything this one would -- urgency entry and a bullpen rung both carry
+    # score, inning and bullpen state. The baseline was already advanced by
+    # consume_inning_change(), so a suppressed report costs no future one.
     if suppress:
         return
 
@@ -334,20 +502,33 @@ def check_inning_change(game_pk, boxscore, linescore, inning, inning_ordinal, in
         parts.append("")
         parts.append(f"{linescore[f'{trailing}_name']} - {pen_line}")
 
-    notifier.send_alert(
-        f"Inning Change - {inning_state} {inning_ordinal or inning}",
+    previous = _last_digest_lead.get(game_pk)
+    _last_digest_lead[game_pk] = lead
+    if previous is not None and previous != lead:
+        parts.append("")
+        parts.append(f"Lead {lead - previous:+d} since the last report.")
+
+    bus.add(
+        "inning_digest",
+        f"Inning Report - {inning_state} {inning_ordinal or inning}",
         "\n".join(parts),
         priority="high",
         tags="stopwatch",
     )
 
 
-def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus):
     """Score-only watch tier, completely independent of who's pitching: fires
     the first time a game's run differential crosses BIG_LEAD_THRESHOLD, and
     again every BIG_LEAD_STEP runs after that as the lead keeps growing. Also
     marks the game as "big lead flagged" (via the alerted key itself) so
-    check_pitcher_change() knows to start watching it."""
+    check_pitcher_change() knows to start watching it.
+
+    Mid-inning this is its own push, immediately -- a lead running away is the
+    thing you want to hear about while it is happening. On a poll that is also
+    an inning boundary it folds into the inning report instead, so the boundary
+    produces one notification rather than two saying the same thing. The bucket
+    key is recorded either way, so the fold cannot cost a future alert."""
     home_runs = linescore.get("home", 0)
     away_runs = linescore.get("away", 0)
     lead = abs(home_runs - away_runs)
@@ -374,11 +555,10 @@ def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, out
     trailing_runs = linescore[trailing_side]
 
     inning_line = _format_inning_line(inning, inning_ordinal, inning_state, outs)
-    message = (
-        f"{leading_team} {leading_runs} - {trailing_team} {trailing_runs}\n"
-        f"{inning_line}\n\n"
-        f"Lead is up to {lead} runs. Worth watching for a bullpen move."
-    )
+    # The part that carries the news, kept separate from the score/inning
+    # header: the inning report already prints the header, so folding sends
+    # only this tail rather than repeating it.
+    tail = f"Lead is up to {lead} runs. Worth watching for a bullpen move."
 
     try:
         all_odds = odds.get_cached_or_fetch()
@@ -390,17 +570,30 @@ def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, out
                 if ladder:
                     point = ladder[0]["point"]
                     price = ladder[0]["price"]
-                    message += (
+                    tail += (
                         f"\nCurrent {game_odds.get('book_title', 'book')} line: "
                         f"{leading_team} {point:+g} ({price:+d})"
                     )
     except Exception as e:
         print(f"[bot] Big-lead odds lookup failed for {game_pk}: {e}")
 
-    notifier.send_alert("Big Lead Watch", message, priority="default", tags="eyes")
+    message = (
+        f"{leading_team} {leading_runs} - {trailing_team} {trailing_runs}\n"
+        f"{inning_line}\n\n"
+        f"{tail}"
+    )
+    bus.add(
+        "big_lead", "Big Lead Watch", message, priority="default", tags="eyes",
+        # Urgency entry and the inning report both already print the score,
+        # inning and bullpen state, so on those polls this is a redundant
+        # second push -- fold the news into whichever one is going out. Urgency
+        # entry is preferred because it suppresses the inning report anyway.
+        merge_into=("urgency_on", "inning_digest"),
+        merge_line=tail,
+    )
 
 
-def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus):
     """Once a lead reaches EXTREME_LEAD_THRESHOLD, alert at urgent priority and
     re-alert on tighter EXTREME_LEAD_STEP increments. Also inlines the losing
     team's current bullpen state (# relievers already used, current pitcher's
@@ -470,7 +663,11 @@ def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     except Exception as e:
         print(f"[bot] Extreme-lead odds lookup failed for {game_pk}: {e}")
 
-    notifier.send_alert(
+    # Deliberately never folded into the inning report. Big Lead is a routine
+    # watch line; this is a lead that has run away, and it has to stay its own
+    # push, above the routine traffic, even on an inning boundary.
+    bus.add(
+        "extreme_lead",
         "Extreme Lead Alert",
         "\n".join(message_parts),
         priority="urgent",
@@ -478,7 +675,7 @@ def check_extreme_lead(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     )
 
 
-def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted):
+def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus):
     """TIER 1 -- the bullpen depth ladder for the trailing team.
 
     Fires on reliever count alone. There is no run-diff bar and no inning
@@ -529,6 +726,7 @@ def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, in
     lead = linescore[leading] - linescore[trailing]
 
     if rung >= BULLPEN_CRITICAL_COUNT:
+        kind = "bullpen_critical"
         title = "Bullpen Exhausted - URGENT"
         priority = "urgent"
         tags = "rotating_light,fire"
@@ -537,6 +735,7 @@ def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, in
             f"position player usually comes out of -- watch this game."
         )
     else:
+        kind = "bullpen_exhausted"
         title = "Bullpen Exhausted"
         priority = "high"
         tags = "warning,baseball"
@@ -557,11 +756,11 @@ def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, in
     if lead > 0:
         parts.append(f"{leading_team} lead: {lead}.")
 
-    notifier.send_alert(title, "\n".join(parts), priority=priority, tags=tags)
+    bus.add(kind, title, "\n".join(parts), priority=priority, tags=tags)
     return rung
 
 
-def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, suppress=False):
+def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus, suppress=False):
     """Urgent, early-warning tier: once a game has been big-lead-flagged (by
     check_big_lead above), ping on EVERY new pitcher for the trailing team --
     reliever-to-reliever swaps included -- so bullpen churn is visible before
@@ -648,7 +847,7 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
         f"{pitcher_name} is in for {trailing_team} (reliever #{current_count}). "
         f"{footer}"
     )
-    notifier.send_alert(title, message, priority="urgent", tags=tags)
+    bus.add("pitcher_change", title, message, priority="urgent", tags=tags)
 
 
 def required_run_diff_for_inning(inning):
@@ -717,20 +916,35 @@ def _safe(label, fn, *args, **kwargs):
 
 
 def check_game(game_pk, alerted):
-    """One poll of one game.
+    """One poll of one game. Returns the alert kinds pushed, in send order.
 
     Rule hierarchy, deliberately ordered:
 
       TIER 0  GOLDEN -- a position player is pitching. This is the event the
-              bot exists for. It runs FIRST, needs nothing but the boxscore,
-              and is isolated so no other tier's failure can suppress it. It
-              always fires (see _classify) and overrides every gate.
+              bot exists for. It is COMPUTED FIRST, needs nothing but the
+              boxscore, and is isolated so no other tier's failure can suppress
+              it. It always fires (see _classify) and overrides every gate.
 
       TIER 1  CONTEXT -- bullpen depth, big lead, extreme lead, urgency mode,
-              inning change, pitcher change. These do not gate the golden
+              the inning report, pitcher change. These do not gate the golden
               signal; they exist to flag games where it is becoming likely, so
               the bettor is already watching when it happens. Each runs in
               isolation.
+
+    Computation order and SEND order are two different things now, and only the
+    first one is decided here. Every tier writes into an AlertBus; the bus
+    sends the batch at the end, sorted by ALERT_RANK, least important first --
+    so the most important push is the last one sent and therefore the one
+    sitting on top of the phone's notification stack.
+
+    That split is the point. Golden must be computed first (nothing that can
+    fail may run before it) and sent last (nothing may cover it), and those two
+    requirements are contradictory as long as a tier pushes the moment it
+    decides to. Adding a tier in the wrong place here can no longer bury
+    anything; it can only change what gets computed first.
+
+    The flush is in a `finally` so a tier that escapes _safe() still cannot
+    swallow a golden push already sitting in the batch.
     """
     boxscore = mlb_api.get_boxscore(game_pk)   # hard requirement for any check
     linescore = mlb_api.get_linescore(boxscore)
@@ -743,38 +957,69 @@ def check_game(game_pk, alerted):
     inning_state = detail.get("inning_state")
     outs = detail.get("outs")
 
-    # ---- TIER 0: GOLDEN, first and isolated ----
-    _safe("golden/position_player", check_position_players,
-          game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
+    bus = AlertBus()
+    try:
+        # ---- TIER 0: GOLDEN, computed first and isolated ----
+        _safe("golden/position_player", check_position_players,
+              game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
+              alerted, bus)
 
-    # ---- TIER 1: context signals ----
-    # Order within the tier matters. Urgency latches first so the inning and
-    # pitcher checks see the current mode. Extreme runs before big-lead because
-    # big-lead self-suppresses inside extreme territory, keeping the two from
-    # double-alerting on overlapping buckets.
-    entered_urgency = _safe("urgency_mode", check_urgency_mode,
-        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    bullpen_rung = _safe("bullpen_depth", check_bullpen_depth,
-        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    _safe("extreme_lead", check_extreme_lead,
-        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    _safe("big_lead", check_big_lead,
-        game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted)
-    _safe("inning_change", check_inning_change,
-        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
-        suppress=bool(entered_urgency))
-    # Both urgency entry and a bullpen rung already name the incoming pitcher,
-    # so the generic pitcher-change ping would be a second push for one move.
-    _safe("pitcher_change", check_pitcher_change,
-        game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs, alerted,
-        suppress=bool(entered_urgency) or bool(bullpen_rung))
+        # ---- TIER 1: context signals ----
+        # Computation order still matters for the SUPPRESSION rules (which tier
+        # gets to know what another tier already said); it no longer decides
+        # what ends up on top of the stack.
+        #
+        # The half-inning marker is consumed up front, before any tier can
+        # raise, so the baseline advances exactly once per poll no matter what
+        # happens below.
+        inning_changed = _safe("inning_marker", consume_inning_change,
+                               game_pk, inning, inning_state)
+
+        # Urgency latches first so the inning report and pitcher check see the
+        # current mode. Extreme runs before big-lead because big-lead
+        # self-suppresses inside extreme territory, keeping the two from
+        # double-alerting on overlapping buckets.
+        entered_urgency = _safe("urgency_mode", check_urgency_mode,
+            game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
+            alerted, bus)
+        bullpen_rung = _safe("bullpen_depth", check_bullpen_depth,
+            game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
+            alerted, bus)
+        _safe("extreme_lead", check_extreme_lead,
+            game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
+            alerted, bus)
+        _safe("big_lead", check_big_lead,
+            game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus)
+        # Urgency entry and a bullpen rung both already carry score, inning and
+        # bullpen state, so the routine inning report would be a second push
+        # saying less. Its baseline is already advanced, so skipping is free.
+        _safe("inning_report", check_inning_report,
+            game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
+            alerted, bus,
+            changed=bool(inning_changed),
+            suppress=bool(entered_urgency) or bool(bullpen_rung))
+        # Both urgency entry and a bullpen rung already name the incoming
+        # pitcher, so the generic pitcher-change ping would be a second push
+        # for one move.
+        _safe("pitcher_change", check_pitcher_change,
+            game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
+            alerted, bus,
+            suppress=bool(entered_urgency) or bool(bullpen_rung))
+    finally:
+        sent = bus.flush()
+    return sent
 
 
 def check_position_players(game_pk, boxscore, linescore, inning, inning_ordinal,
-                           inning_state, outs, alerted):
+                           inning_state, outs, alerted, bus):
     """TIER 0 -- the golden signal. A field player on the mound overrides every
     other rule and always pushes; _classify only grades how strong the betting
-    case is. Deduped per (game, player) so one appearance pushes once."""
+    case is. Deduped per (game, player) so one appearance pushes once.
+
+    This is computed before any other tier and never merges into anything. It
+    queues at the top of the ALERT_RANK ladder, which means it is the LAST push
+    sent and therefore the one on top of the stack -- not the first one sent
+    and buried under six context pings, which is what it used to be."""
     hits = mlb_api.find_position_players_pitching(boxscore)
     if not hits:
         return
@@ -893,9 +1138,12 @@ def check_position_players(game_pk, boxscore, linescore, inning, inning_ordinal,
                 message += total_line
 
         print(f"\n=== ALERT [{tier}] ===\n{title}\n{message}\n")
-        notifier.send_alert(title, message, priority=priority, tags=tags)
-        # Mark alerted immediately after the push. Logging is bookkeeping; if
-        # it fails we must not re-push the same appearance on the next poll.
+        bus.add("golden", title, message, priority=priority, tags=tags)
+        # Marked alerted as soon as the push is queued. The queue is flushed in
+        # a `finally` inside check_game, so "queued" and "sent" cannot come
+        # apart -- and notifier.send_alert swallows every failure anyway, so
+        # this is the same guarantee as marking it after the send used to be:
+        # one appearance pushes once, never twice.
         alerted.add(key)
         _safe("golden/alert_log", alert_log.append,
             {
@@ -1133,15 +1381,24 @@ def _write_live_snapshot(game_pks, alerted=None):
     return payload
 
 
-def _maybe_send_hourly_summary(games):
+def _maybe_send_hourly_summary(games, defer=False):
     """Push a slate-wide digest -- every live game, ranked biggest lead to
     smallest (same ordering as the dashboard) -- on a rolling interval,
     independent of whether any individual alert has fired. Lets you glance
     at your phone instead of the dashboard to see where the whole slate
-    stands."""
+    stands.
+
+    `defer` holds it back when a real alert fired in this same poll cycle. This
+    summary is the lowest-value push the bot sends and it goes out after the
+    per-game batches, which would put it on top of them -- the same burying
+    that ALERT_RANK exists to prevent, one level up. Deferring costs at most one
+    poll interval, and the clock is deliberately NOT advanced so it goes out on
+    the next quiet cycle rather than being skipped for the hour."""
     global _last_summary_at
     now = time.time()
     if now - _last_summary_at < SUMMARY_INTERVAL_SECONDS:
+        return
+    if defer:
         return
     _last_summary_at = now
 
@@ -1178,9 +1435,10 @@ def run_once(alerted):
     # date.today() rolls over to tomorrow while west-coast games are still live.
     today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     game_pks = mlb_api.get_live_game_pks(today)
+    alerts_this_cycle = []
     for game_pk in game_pks:
         try:
-            check_game(game_pk, alerted)
+            alerts_this_cycle.extend(check_game(game_pk, alerted) or [])
         except Exception as e:
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
@@ -1188,7 +1446,7 @@ def run_once(alerted):
     # The snapshot now carries the whole slate; the summary is about live games
     # only, so filter rather than reporting scheduled games as in progress.
     live_only = [g for g in snapshot_payload.get("games", []) if g.get("is_live")]
-    _maybe_send_hourly_summary(live_only)
+    _maybe_send_hourly_summary(live_only, defer=bool(alerts_this_cycle))
     return snapshot_payload
 
 
@@ -1460,8 +1718,10 @@ def notify_startup():
         f"Pitcher Change Alert: urgent ping on any new reliever once a game is big-lead "
         f"flagged.\n"
         f"Urgency Mode: {URGENCY_RUN_DIFF}+ lead AND {URGENCY_MIN_RELIEVERS}+ relievers used "
-        f"-> pings every half-inning and every pitcher change (exits below "
-        f"{URGENCY_EXIT_RUN_DIFF}).\n"
+        f"-> one Inning Report every half-inning (lead + bullpen state) plus every "
+        f"pitcher change (exits below {URGENCY_EXIT_RUN_DIFF}).\n"
+        f"Alerts arriving together are sent least-important-first, so the most "
+        f"important one sits on top of your notifications.\n"
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
     if SCHEDULE_ENABLED and schedule is not None:

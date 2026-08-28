@@ -29,7 +29,7 @@ Six distinct notification types, all pushed via ntfy.sh to topic `MLB_Bets-Blowo
 | **Big Lead Watch** | Lead reaches 6+, any inning | default | Every +3 runs (6, 9) — suppressed at 10+ |
 | **Extreme Lead** | Lead reaches 10+ | urgent | Every +2 runs (10, 12, 14, 16…) |
 | **Urgency Mode ON/OFF** | Lead 6+ **AND** trailing team used 2+ relievers | urgent | Once per entry; exits below lead 4 |
-| **Inning Change** | Half-inning flips — **only while in Urgency Mode** | high | Every Top/Bottom transition |
+| **Inning Report** | Half-inning flips — **only while in Urgency Mode**. One consolidated push: inning + current lead (and its change since the last report) + trailing bullpen state | high | Every Top/Bottom transition |
 | **Pitcher Change** | New reliever for the trailing team, once a game is flagged | urgent | Every substitution |
 | **Bullpen Exhausted** | Trailing team has used **3** relievers — no lead or inning gate | high | Once per game per side |
 | **Bullpen Exhausted — URGENT** | Trailing team has used **4** relievers | urgent | Once per game per side |
@@ -40,16 +40,38 @@ Plus an **Hourly Slate Summary** (every live game ranked by lead) and a **Bot St
 **Tier interaction rules that matter:**
 - Big Lead self-suppresses at 10+ so Extreme owns that range — no double-firing at lead 12.
 - Pitcher Change alerts pick their label from the strongest active state: **urgency > extreme > big lead**. One push per substitution, never one per matching tier.
-- The Urgency Mode entry message already names the incoming pitcher and current inning, so the Pitcher Change and Inning Change pushes are suppressed on that exact poll.
+- The Urgency Mode entry message already names the incoming pitcher and current inning, so the Pitcher Change and Inning Report pushes are suppressed on that exact poll.
 - If the new arm is a *position player*, both Pitcher Change and the Bullpen ladder stay silent and let the GOLDEN tier own the moment.
-- A bullpen rung that fires suppresses Pitcher Change on that same poll, exactly as Urgency Mode entry does. The rung is still marked as alerted, so a suppressed rung can never fire late.
+- A bullpen rung that fires suppresses **both** Pitcher Change and the Inning Report on that same poll, exactly as Urgency Mode entry does. The rung is still marked as alerted, so a suppressed rung can never fire late.
 - The bullpen ladder is keyed per side, so a lead change starts a fresh ladder for the newly trailing team.
+- Big Lead Watch **folds into** the Inning Report (or the Urgency Mode ON message) when they land on the same poll, so an inning boundary is one push, not two. Extreme Lead never folds. Mid-inning, both lead tiers push immediately on their own.
+- The Hourly Slate Summary is deferred one poll if any game alert fired in the same cycle, so it can't sit on top of them.
+
+### Send order is the real priority system
+
+A phone stack shows the newest push on top, so **the alert sent last is the one you see**. Order used to be an accident of the order `check_game()` called the tiers — which put the Inning Change ping on top of the Bullpen Exhausted ping (user-reported), and put GOLDEN, which correctly runs first, at the very bottom.
+
+Tiers now queue into an `AlertBus` and the poll's batch is sent in **ascending importance**:
+
+| Rank | Alert |
+|---|---|
+| 10 | Urgency Mode Off |
+| 20 | Inning Report |
+| 30 | Big Lead Watch |
+| 40 | Extreme Lead |
+| 50 | Urgency Mode ON |
+| 60 | Pitcher Change |
+| 70 | Bullpen Exhausted |
+| 80 | Bullpen Exhausted — URGENT |
+| **100** | **GOLDEN — Position Player** |
+
+GOLDEN is **computed first** (nothing that can fail runs before it) and **sent last** (nothing can cover it). The flush is in a `finally` and each send is isolated, so neither a tier escaping `_safe()` nor a rate-limited push drops the golden alert queued behind it. A tier added without a rank sorts below everything, so it can never bury a critical alert.
 
 ### Urgency Mode is a latched state, not an alert
 
 This is the only tier with real state. A game **enters** at lead 6+ with 2+ relievers used, and **exits** below lead 4 (or on a tie). The 6-in/4-out gap is hysteresis — without it a game hovering at 5–6 runs would flip in and out and spam transitions.
 
-While latched, you get a push on **every half-inning and every trailing-team pitcher change**. Expect **8–12 notifications** from a game that enters in the 5th and runs to the 9th. Entry state persists across bot restarts.
+While latched, you get one Inning Report per half-inning plus a push on **every trailing-team pitcher change**. Expect **8–12 notifications** from a game that enters in the 5th and runs to the 9th — fewer than before, since the lead update now rides along with the inning report instead of being its own push. Entry state persists across bot restarts.
 
 ---
 
