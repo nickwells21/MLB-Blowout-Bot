@@ -54,6 +54,16 @@ MIN_BATTERS_FACED = 30
 # should be hardening.
 STARTER_SHARE = 0.5
 
+# --- recent-workload thresholds -------------------------------------------
+# A pen can arrive at the ballpark already exhausted. These are the standard
+# usage patterns a manager treats as unavailable or limited; they are
+# heuristics, not truth -- we cannot see the training staff's list.
+GASSED_CONSEC_DAYS = 3       # three days running: effectively unavailable
+GASSED_PITCHES_YDAY = 45     # a heavy outing last night
+GASSED_PITCHES_2D = 50       # or that much across the last two
+LIMITED_PITCHES_2D = 30
+RECENT_WINDOW_DAYS = 7
+
 
 def _season(date_str=None):
     if date_str:
@@ -82,23 +92,55 @@ def _fetch_team_arms(team_id, season):
         return {}
     people = _get(
         f"{BASE}/people?personIds={','.join(ids)}"
-        f"&hydrate=stats(group=[pitching],type=[season],season={season})"
+        f"&hydrate=stats(group=[pitching],type=[season,gameLog],season={season})"
     ).get("people", [])
 
     out = {}
     for person in people:
-        stat = {}
+        season_splits, log_splits = [], []
         for block in person.get("stats") or []:
+            kind = ((block.get("type") or {}).get("displayName") or "").lower()
             splits = block.get("splits") or []
-            if splits:
-                stat = splits[0].get("stat") or {}
-                break
+            if kind == "gamelog":
+                log_splits = splits
+            elif kind == "season":
+                season_splits = splits
         out[person["id"]] = {
             "player_id": person["id"],
             "name": person.get("fullName", "Unknown"),
-            **_derive(stat),
+            **_derive(_merge_season(season_splits)),
+            "workload": _workload(log_splits),
+            # Kept so get_arm() can recompute rest excluding today.
+            "_log": log_splits,
         }
     return out
+
+
+def _merge_season(splits):
+    """A traded player gets one season split per team. Reading only the first
+    would report half a season, so sum the counting stats and let the rate
+    stats be recomputed from those totals."""
+    if not splits:
+        return {}
+    if len(splits) == 1:
+        return splits[0].get("stat") or {}
+    total = {}
+    for sp in splits:
+        for k, v in (sp.get("stat") or {}).items():
+            n = _num(v)
+            if n is None:
+                continue
+            total[k] = total.get(k, 0) + n
+    ip = total.get("outs")
+    if ip:
+        # ERA/WHIP are rates and cannot be summed; rebuild them from totals.
+        innings = ip / 3.0
+        if total.get("earnedRuns") is not None:
+            total["era"] = round(9 * total["earnedRuns"] / innings, 2)
+        walks_hits = (total.get("baseOnBalls", 0) + total.get("hits", 0))
+        total["whip"] = round(walks_hits / innings, 2)
+        total["inningsPitched"] = f"{int(ip // 3)}.{int(ip % 3)}"
+    return total
 
 
 def _num(v):
@@ -136,6 +178,87 @@ def _derive(stat):
         # a blowout is its own kind of signal, so say so rather than hiding it.
         "unproven": not bf,
         "thin_sample": bool(bf) and bf < MIN_BATTERS_FACED,
+    }
+
+
+def _workload(log_splits, today=None, exclude_today=False):
+    """Recent usage from the game log -- the thing the active roster cannot
+    tell you. An arm that threw 45 pitches last night is on the roster and is
+    not getting up today.
+
+    `exclude_today` reports the rest a pitcher had walking IN. For an arm who
+    has just entered, today's own outing is already in the log, so including it
+    makes every incoming pitcher read "already pitched today" -- true, useless,
+    and it hides the fact he was on back-to-back days.
+    """
+    today = today or datetime.now(ET).date()
+    days = {}
+    for sp in log_splits:
+        d = sp.get("date")
+        if not d:
+            continue
+        try:
+            day = datetime.strptime(d, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if exclude_today and day >= today:
+            continue
+        pitches = _num((sp.get("stat") or {}).get("numberOfPitches")) or 0
+        days[day] = days.get(day, 0) + pitches
+
+    if not days:
+        return {"availability": "UNKNOWN", "days_rest": None, "last_pitched": None,
+                "pitches_yday": 0, "pitches_2d": 0, "appearances_7d": 0,
+                "consecutive_days": 0, "why": "no game log"}
+
+    last = max(days)
+    rest = (today - last).days
+    def on(offset):
+        from datetime import timedelta
+        return days.get(today - timedelta(days=offset), 0)
+
+    y, d2 = on(1), on(1) + on(2)
+    consec = 0
+    for i in range(1, 5):
+        if on(i) > 0:
+            consec += 1
+        else:
+            break
+
+    recent = sum(1 for d in days if 0 <= (today - d).days <= RECENT_WINDOW_DAYS)
+
+    # Recency matters as much as volume: 25 pitches on each of the last two
+    # nights is a spent arm, while one 52-pitch long-relief outing two days ago
+    # is an arm most of the way back. Both total ~50 over two days, so a flat
+    # two-day sum would call them the same thing. Only load that includes
+    # YESTERDAY can reach GASSED.
+    if consec >= GASSED_CONSEC_DAYS:
+        avail, why = "GASSED", f"{consec} days running"
+    elif y >= GASSED_PITCHES_YDAY:
+        avail, why = "GASSED", f"{int(y)} pitches yesterday"
+    elif y > 0 and d2 >= GASSED_PITCHES_2D:
+        avail, why = "GASSED", f"{int(d2)} pitches in 2 days, worked yesterday"
+    elif consec >= 2:
+        avail, why = "LIMITED", "back-to-back days"
+    elif d2 >= GASSED_PITCHES_2D:
+        # A single heavy outing, a day removed. Still recovering, not spent.
+        avail, why = "LIMITED", f"{int(d2)}-pitch outing {rest} days ago"
+    elif d2 >= LIMITED_PITCHES_2D:
+        avail, why = "LIMITED", f"{int(d2)} pitches in 2 days"
+    elif rest == 0:
+        avail, why = "LIMITED", "already pitched today"
+    else:
+        avail, why = "READY", f"{rest} days rest"
+
+    return {
+        "availability": avail,
+        "days_rest": rest,
+        "last_pitched": last.isoformat(),
+        "pitches_yday": int(y),
+        "pitches_2d": int(d2),
+        "appearances_7d": recent,
+        "consecutive_days": consec,
+        "why": why,
     }
 
 
@@ -177,12 +300,8 @@ def grade(arm):
     return "NEUTRAL", hits
 
 
-def get_remaining(boxscore, side, team_id, date_str=None):
-    """Arms the team has NOT used yet this game, graded and summarised.
-
-    Returns None if the roster could not be fetched -- callers must treat this
-    as "unknown", never as "nobody left".
-    """
+def _team_arms(team_id, date_str=None):
+    """Cached roster+stats for one team, or None if unavailable."""
     season = _season(date_str)
     key = (team_id, season)
     hit = _cache.get(key)
@@ -191,8 +310,44 @@ def get_remaining(boxscore, side, team_id, date_str=None):
         if not arms:
             return None
         _cache[key] = (time.time(), arms)
-    else:
-        arms = hit[1]
+        return arms
+    return hit[1]
+
+
+def _public(arm):
+    """Strip internal keys before anything reaches the JSON feed. The raw game
+    log is kept in cache to recompute rest, but it is many KB per pitcher and
+    has no business in live_snapshot.json."""
+    return {k: v for k, v in arm.items() if not k.startswith("_")}
+
+
+def get_arm(team_id, person_id, date_str=None):
+    """One graded arm WITH workload, by id -- including a pitcher already in
+    the game. get_remaining() deliberately excludes anyone who has pitched, but
+    when a change is flagged the arm that just entered is precisely the one
+    worth reporting on. Returns None if unknown."""
+    arms = _team_arms(team_id, date_str)
+    if not arms:
+        return None
+    arm = arms.get(person_id)
+    if not arm:
+        return None
+    verdict, hits = grade(arm)
+    # Recompute workload ignoring today, so the number means "rest he had
+    # coming in" rather than the tautology that he has pitched today.
+    coming_in = _workload(arm.get("_log") or [], exclude_today=True)
+    return {**_public(arm), "verdict": verdict, "why": hits, "workload": coming_in}
+
+
+def get_remaining(boxscore, side, team_id, date_str=None):
+    """Arms the team has NOT used yet this game, graded and summarised.
+
+    Returns None if the roster could not be fetched -- callers must treat this
+    as "unknown", never as "nobody left".
+    """
+    arms = _team_arms(team_id, date_str)
+    if not arms:
+        return None
 
     used = set(boxscore["teams"][side].get("pitchers", []))
     remaining, starters = [], []
@@ -200,7 +355,7 @@ def get_remaining(boxscore, side, team_id, date_str=None):
         if pid in used:
             continue
         verdict, hits = grade(arm)
-        entry = {**arm, "verdict": verdict, "why": hits}
+        entry = {**_public(arm), "verdict": verdict, "why": hits}
         # Starters are listed separately: available in extremis, but they are
         # not what the trailing team reaches for next, so they must not count
         # toward the pen verdict.
@@ -226,7 +381,17 @@ def _summarise(remaining):
     """Pen-level read. Combined ERA is innings-weighted, so a mop-up arm with
     four innings does not swing it the way a straight average would."""
     er, ip_total, kbb, attack, unproven = 0.0, 0.0, [], 0, 0
+    gassed = limited = ready = pen_pitches_2d = 0
     for a in remaining:
+        w = a.get("workload") or {}
+        av = w.get("availability")
+        if av == "GASSED":
+            gassed += 1
+        elif av == "LIMITED":
+            limited += 1
+        elif av == "READY":
+            ready += 1
+        pen_pitches_2d += w.get("pitches_2d") or 0
         if a["verdict"] == "ATTACK":
             attack += 1
         if a["verdict"] in ("UNPROVEN", "THIN"):
@@ -246,21 +411,35 @@ def _summarise(remaining):
         "avg_k_bb_pct": round(sum(kbb) / len(kbb), 1) if kbb else None,
         "attack_count": attack,
         "unproven_count": unproven,
-        "verdict": _pen_verdict(remaining, attack, unproven),
+        # Availability is separate from quality: a good arm that threw 45
+        # pitches last night is not an option tonight either.
+        "gassed_count": gassed,
+        "limited_count": limited,
+        "ready_count": ready,
+        "pen_pitches_2d": int(pen_pitches_2d),
+        "verdict": _pen_verdict(remaining, attack, unproven, gassed, ready),
     }
 
 
-def _pen_verdict(remaining, attack, unproven):
-    """How soft is what is left. Deliberately blunt -- this is a glance read."""
+def _pen_verdict(remaining, attack, unproven, gassed=0, ready=None):
+    """How soft is what is left.
+
+    Counts EFFECTIVE arms, not bodies. A pen can arrive already exhausted from
+    the previous two nights, and a roster spot held by an arm who threw 45
+    pitches last night is not depth -- that is the whole point of tracking
+    workload, so gassed arms are excluded from the count."""
     n = len(remaining)
     if n == 0:
         return "EMPTY"
+    effective = n - gassed
+    if effective <= 0:
+        return "EMPTY"
     soft = attack + unproven
-    if n <= 2:
+    if effective <= 2:
         return "NEARLY OUT"
-    if soft >= max(2, n * 0.6):
+    if soft >= max(2, effective * 0.6):
         return "SOFT"
-    if soft == 0:
+    if soft == 0 and gassed == 0:
         return "INTACT"
     return "MIXED"
 

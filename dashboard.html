@@ -365,7 +365,7 @@
   .rem-sum { font-family: var(--mono); font-size: 10.5px; color: var(--muted-2); margin-left: auto; }
   .rem-sum b { color: var(--muted); font-weight: 700; }
   .rem-list { display: grid; gap: 4px; }
-  .rem-row { display: grid; grid-template-columns: 62px 1fr 46px 52px 1fr;
+  .rem-row { display: grid; grid-template-columns: 62px 1fr 46px 52px 58px 1fr;
     gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 11px;
     padding: 4px 0; border-bottom: 1px solid var(--border); }
   .rem-row:last-child { border-bottom: 0; }
@@ -379,11 +379,16 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rem-row.ATTACK .nm { color: var(--red); font-weight: 700; }
   .rem-row .st { text-align: right; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+  .rem-row .fat { font-size: 8.5px; font-weight: 800; letter-spacing: .07em; text-align: center; }
+  .rem-row .fat.GASSED { color: var(--red); }
+  .rem-row .fat.LIMITED { color: var(--amber); }
+  .rem-row .fat.READY { color: var(--muted-2); }
+  .rem-row .fat.UNKNOWN { color: var(--blue); }
   .rem-row .why { font-size: 10px; color: var(--muted-2); overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
   .rem-note { font-size: 10.5px; color: var(--muted-2); margin-top: 9px; font-family: var(--mono); }
   @media (max-width: 640px) {
-    .rem-row { grid-template-columns: 58px 1fr 44px 48px; }
+    .rem-row { grid-template-columns: 58px 1fr 44px 48px 54px; }
     .rem-row .why { display: none; }
   }
 
@@ -1311,6 +1316,9 @@ function remBlock(g, side) {
   if (r.combined_era != null) sum.push('<b>' + esc(r.combined_era) + '</b> combined ERA');
   if (r.avg_k_bb_pct != null) sum.push('<b>' + esc(r.avg_k_bb_pct) + '%</b> avg K-BB');
   if (r.attack_count) sum.push('<b>' + r.attack_count + '</b> attackable');
+  if (r.gassed_count) sum.push('<b style="color:var(--red)">' + r.gassed_count + '</b> gassed');
+  if (r.limited_count) sum.push(r.limited_count + ' limited');
+  if (r.pen_pitches_2d) sum.push('<b>' + r.pen_pitches_2d + '</b> pitches / 2d');
   if (r.starter_count) sum.push(r.starter_count + ' SP held back');
   return '<div class="rem">'
     + '<div class="rem-top"><span class="lbl">What\u2019s left \u00b7 ' + esc(g[side + '_team'] || '') + '</span>'
@@ -1325,11 +1333,14 @@ function remBlock(g, side) {
             + '<span class="nm">' + esc(a.name) + '</span>'
             + '<span class="st">' + esc(a.era != null ? a.era : '\u2014') + '</span>'
             + '<span class="st">' + (a.k_bb_pct != null ? esc(a.k_bb_pct) + '%' : '\u2014') + '</span>'
-            + '<span class="why">' + esc((a.why || []).join(', ')) + '</span>'
+            + '<span class="fat ' + esc((a.workload || {}).availability || 'UNKNOWN') + '">'
+            +   esc((a.workload || {}).availability || '\u2014') + '</span>'
+            + '<span class="why">' + esc([(a.why || []).join(', '),
+                  (a.workload || {}).why].filter(Boolean).join(' \u00b7 ')) + '</span>'
             + '</div>').join('') + '</div>'
         : '<div class="nodata">No arms left on the active roster.</div>')
     + '<div class="rem-note">ERA \u00b7 K-BB% are season. Graded on K-BB%, K%, BB% and ERA \u2014 '
-    +   'thin samples and starters are excluded from the verdict.</div>'
+    +   'thin samples and starters are excluded. Fatigue is rest coming in, from the game log.</div>'
     + '</div>';
 }
 

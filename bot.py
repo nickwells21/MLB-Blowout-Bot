@@ -458,10 +458,14 @@ def check_urgency_mode(game_pk, boxscore, linescore, inning, inning_ordinal, inn
     pen_line = _bullpen_state_line(boxscore, trailing)
     if pen_line:
         parts.append(pen_line)
-    left_line = _remaining_line(boxscore, trailing,
-                                linescore.get(f"{trailing}_id"))
+    team_id = linescore.get(f"{trailing}_id")
+    parts.extend(_arm_intel_lines(boxscore, trailing, team_id))
+    left_line = _remaining_line(boxscore, trailing, team_id)
     if left_line:
         parts.append(left_line)
+    fatigue = _pen_fatigue_line(boxscore, trailing, team_id)
+    if fatigue:
+        parts.append(fatigue)
     parts.append("")
     parts.append("Now reporting EVERY half-inning and EVERY pitcher change in this game.")
 
@@ -892,13 +896,26 @@ def check_pitcher_change(game_pk, boxscore, linescore, inning, inning_ordinal, i
         footer = "Bullpen still churning in this blowout -- watch for a position player next."
         tags = "warning"
 
-    message = (
-        f"{header}{leading_team} {linescore[leading_side]} - {trailing_team} {linescore[trailing_side]}\n"
-        f"{inning_line}\n\n"
-        f"{pitcher_name} is in for {trailing_team} (reliever #{current_count}). "
-        f"{footer}"
-    )
-    bus.add("pitcher_change", title, message, priority="urgent", tags=tags)
+    lines = [
+        f"{header}{leading_team} {linescore[leading_side]} - "
+        f"{trailing_team} {linescore[trailing_side]}",
+        inning_line,
+        "",
+        f"{pitcher_name} is in for {trailing_team} (reliever #{current_count}).",
+    ]
+    # What actually walked in, and how tired he and the pen behind him are. A
+    # change only tells you the bet if you know whether the new arm is worse
+    # than the one that left, and whether anyone decent is still behind him.
+    team_id = linescore.get(f"{trailing_side}_id")
+    lines.extend(_arm_intel_lines(boxscore, trailing_side, team_id))
+    left = _remaining_line(boxscore, trailing_side, team_id)
+    if left:
+        lines.append(left)
+    fatigue = _pen_fatigue_line(boxscore, trailing_side, team_id)
+    if fatigue:
+        lines.append(fatigue)
+    lines += ["", footer]
+    bus.add("pitcher_change", title, "\n".join(lines), priority="urgent", tags=tags)
 
 
 def required_run_diff_for_inning(inning):
@@ -954,6 +971,89 @@ def _classify(hit, boxscore, linescore, inning):
             return "blowout", run_diff, prior_relievers
 
     return "position_player", run_diff, prior_relievers
+
+
+def _pen_intel_worth_it(box, detail, urgency):
+    """Whether to attach remaining-pen data to a game in the snapshot.
+
+    Not a rule and not a gate on any alert -- purely a payload decision. The
+    full graded pen runs ~6KB per team, and the dashboard refetches every 15s,
+    so attaching it to all fifteen games of a quiet slate would cost a phone
+    tens of MB an hour to describe games where nobody is close to conceding.
+
+    Attach it wherever the thesis is actually live: urgency latched, a lead
+    worth betting, or a pen already being worked.
+    """
+    if urgency:
+        return True
+    lead = abs((detail.get("home_runs") or 0) - (detail.get("away_runs") or 0))
+    if lead >= RUN_DIFF_LATE:
+        return True
+    for side in ("away", "home"):
+        used = len(box["teams"][side].get("pitchers", []))
+        if used - 1 >= URGENCY_MIN_RELIEVERS:
+            return True
+    return False
+
+
+def _arm_intel_lines(boxscore, side, team_id):
+    """What the arm that just took the mound actually is, and how tired.
+
+    A pitching change is only worth a push if you know what walked in. Season
+    grade says whether he is attackable; workload says whether he is on fumes.
+    Both come from the day-cached roster pull, so this adds no request.
+    """
+    if not team_id:
+        return []
+    pen = _safe("intel/pen", mlb_api.get_bullpen_detail, boxscore, side) or []
+    if not pen:
+        return []
+    current = pen[-1]
+    arm = _safe("intel/arm", bullpen.get_arm, team_id, current.get("player_id"))
+    if not arm:
+        return []
+
+    lines = []
+    stats = []
+    if arm.get("era") is not None:
+        stats.append(f"{arm['era']} ERA")
+    if arm.get("k_bb_pct") is not None:
+        stats.append(f"{arm['k_bb_pct']}% K-BB")
+    if arm.get("whip") is not None:
+        stats.append(f"{arm['whip']} WHIP")
+    verdict = arm.get("verdict")
+    if stats or verdict:
+        head = f"{current.get('name', 'New arm')}: " + " - ".join(stats)
+        if verdict:
+            head += f"  [{verdict}]"
+        lines.append(head)
+
+    w = arm.get("workload") or {}
+    if w.get("availability") and w["availability"] != "UNKNOWN":
+        lines.append(f"Fatigue: {w['availability']} ({w.get('why')})"
+                     + (f", {w['appearances_7d']} app in 7d"
+                        if w.get("appearances_7d") else ""))
+    return lines
+
+
+def _pen_fatigue_line(boxscore, side, team_id):
+    """How hard the whole pen has been worked lately. A pen can arrive at the
+    park already exhausted, which the in-game reliever count cannot show."""
+    if not team_id:
+        return None
+    r = _safe("pen_fatigue", bullpen.get_remaining, boxscore, side, team_id)
+    if not r:
+        return None
+    bits = []
+    if r.get("pen_pitches_2d"):
+        bits.append(f"{r['pen_pitches_2d']} pitches in 2 days")
+    if r.get("gassed_count"):
+        bits.append(f"{r['gassed_count']} gassed")
+    if r.get("limited_count"):
+        bits.append(f"{r['limited_count']} limited")
+    if not bits:
+        return None
+    return "Pen fatigue: " + " - ".join(bits)
 
 
 def _remaining_line(boxscore, side, team_id):
@@ -1463,15 +1563,22 @@ def _write_live_snapshot(game_pks, alerted=None):
                     "on_deck": detail.get("on_deck"),
                     "current_pitcher": detail.get("current_pitcher"),
                     "innings": detail.get("innings") or [],
-                    # What each side still has in the pen, graded. Rosters and
-                    # season lines are cached for the day, so this adds no
-                    # per-poll requests.
-                    "away_remaining": _safe(
-                        "remaining/away", bullpen.get_remaining,
-                        box, "away", entry.get("away_id")),
-                    "home_remaining": _safe(
-                        "remaining/home", bullpen.get_remaining,
-                        box, "home", entry.get("home_id")),
+                    # What each side still has in the pen, graded. Rosters
+                    # and season lines are cached for the day, so this adds no
+                    # per-poll requests -- but it is bulky, so it rides along
+                    # only where the thesis is live. See _pen_intel_worth_it.
+                    **(
+                        {
+                            "away_remaining": _safe(
+                                "remaining/away", bullpen.get_remaining,
+                                box, "away", entry.get("away_id")),
+                            "home_remaining": _safe(
+                                "remaining/home", bullpen.get_remaining,
+                                box, "home", entry.get("home_id")),
+                        }
+                        if _pen_intel_worth_it(box, detail, game.get("urgency"))
+                        else {}
+                    ),
                     # Position players currently on the field -- the pool the
                     # trailing team would pull from to send someone to pitch.
                     "defense": detail.get("defense") or {},
