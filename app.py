@@ -90,6 +90,24 @@ def odds_json():
     return _serve_json("odds_snapshot.json", {"games": []})
 
 
+@app.route("/bets.json")
+def bets_json():
+    """The bet ledger, graded live.
+
+    Served from the repo rather than DATA_DIR, and settled on read with
+    write=False: DATA_DIR is not a persisted volume (a golden alert's log entry
+    was lost to a redeploy on 2026-08-27), so anything written at runtime is
+    gone on the next ship. Grading on read means the results are always correct
+    without depending on storage that does not survive.
+    """
+    try:
+        import bets
+        ledger = bets.settle(write=False)
+        return jsonify({"summary": bets.summary(ledger), "bets": ledger})
+    except Exception as e:
+        return jsonify({"error": str(e), "bets": []}), 200
+
+
 @app.route("/live_snapshot.json")
 def live_json():
     return _serve_json("live_snapshot.json", {"games": []})
