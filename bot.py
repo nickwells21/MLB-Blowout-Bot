@@ -176,6 +176,16 @@ _last_digest_lead = {}
 # Adding a tier means adding a rank here. Forgetting to is safe by construction:
 # unranked alerts sort below everything, so a new tier can never bury a critical
 # one no matter where its call is placed in check_game().
+# Identifies the running build. Every deploy restarts the process, so a client
+# that sees this value change knows the HTML and JS it loaded are stale. A
+# long-lived phone tab polls JSON forever but never re-downloads the page
+# itself, which is how the dashboard silently ran weeks-old code.
+BUILD_ID = (
+    os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+    or os.environ.get("RAILWAY_DEPLOYMENT_ID")
+    or ""
+)[:12] or f"local-{int(time.time())}"
+
 # True only for the first poll after the process starts. See AlertBus.flush.
 _seeding = True
 
@@ -1291,6 +1301,7 @@ def _write_status(live_game_count):
                 "last_checked": _now_iso(),
                 "live_games": live_game_count,
                 "bot_state": _bot_state,
+                "build": BUILD_ID,
                 "schedule": _schedule_block(),
                 "run_diff_mid": RUN_DIFF_MID,
                 "run_diff_late": RUN_DIFF_LATE,

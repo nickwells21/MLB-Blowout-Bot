@@ -26,6 +26,13 @@
     --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
+  #stale {
+    position: fixed; left: 50%; top: 14px; transform: translateX(-50%);
+    z-index: 999; padding: 9px 15px; border-radius: 999px;
+    background: var(--amber); color: #000;
+    font-size: 12.5px; font-weight: 700; letter-spacing: .01em;
+    box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0 auto;
@@ -813,6 +820,7 @@
 </style>
 </head>
 <body>
+<div id="stale" hidden>New version deployed \u2014 reloading\u2026</div>
 
 <div class="amb" id="amb" aria-hidden="true"></div>
 
@@ -1352,7 +1360,27 @@ function renderDetail() {
 }
 
 /* ---------- bot state / header / alerts / footer ---------- */
+/* A phone tab stays open for days. It keeps polling JSON, but the HTML and JS
+   it is running were downloaded once and never again -- so a deploy would ship
+   and the screen would keep rendering the old build with fresh numbers in it.
+   The server stamps every status write with the build it is running; when that
+   changes underneath us, the page we are executing is stale, so reload it.
+   Nothing on this page is user-entered, so a reload costs nothing. */
+let _build = null, _reloading = false;
+function checkBuild(st) {
+  const b = st && st.build;
+  if (!b) return;                       // older deploy, or field absent
+  if (_build === null) { _build = b; return; }
+  if (b === _build || _reloading) return;
+  _reloading = true;
+  const el = document.getElementById('stale');
+  if (el) { el.hidden = false; }
+  // Brief pause so the notice is actually seen before the screen changes.
+  setTimeout(() => location.reload(), 1200);
+}
+
 function renderBotState(st) {
+  checkBuild(st);
   const el = document.getElementById('botstate');
   // Absent bot_state means an older deploy -- hide rather than guess a state.
   if (!st || !st.bot_state) { el.hidden = true; return; }
