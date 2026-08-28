@@ -1094,6 +1094,16 @@ def _write_live_snapshot(game_pks, alerted=None):
                 "inning": None, "inning_ordinal": None, "inning_state": None,
                 "balls": None, "strikes": None, "outs": None,
                 "away_bullpen": [], "home_bullpen": [],
+                # Every key below is present on Preview/Final games too (as
+                # None/[]/{}) so anything rendering this feed can rely on one
+                # stable shape and never has to test for missing keys.
+                "away_hits": None, "home_hits": None,
+                "away_errors": None, "home_errors": None,
+                "away_lob": None, "home_lob": None,
+                "is_top_inning": None, "scheduled_innings": None,
+                "batting_side": None, "fielding_side": None,
+                "batter": None, "on_deck": None, "current_pitcher": None,
+                "innings": [], "defense": {},
                 "odds": None,
                 "urgency": bool(alerted) and _in_urgency(pk, alerted),
             }
@@ -1114,6 +1124,25 @@ def _write_live_snapshot(game_pks, alerted=None):
                     "outs": detail.get("outs"),
                     "home_bullpen": mlb_api.get_bullpen_detail(box, "home"),
                     "away_bullpen": mlb_api.get_bullpen_detail(box, "away"),
+                    # All of the following ride along in the linescore response
+                    # already fetched above -- no extra request.
+                    "away_hits": detail.get("away_hits"),
+                    "home_hits": detail.get("home_hits"),
+                    "away_errors": detail.get("away_errors"),
+                    "home_errors": detail.get("home_errors"),
+                    "away_lob": detail.get("away_lob"),
+                    "home_lob": detail.get("home_lob"),
+                    "is_top_inning": detail.get("is_top_inning"),
+                    "scheduled_innings": detail.get("scheduled_innings"),
+                    "batting_side": detail.get("batting_side"),
+                    "fielding_side": detail.get("fielding_side"),
+                    "batter": detail.get("batter"),
+                    "on_deck": detail.get("on_deck"),
+                    "current_pitcher": detail.get("current_pitcher"),
+                    "innings": detail.get("innings") or [],
+                    # Position players currently on the field -- the pool the
+                    # trailing team would pull from to send someone to pitch.
+                    "defense": detail.get("defense") or {},
                 })
 
             if all_odds and game["home_team"] and game["away_team"]:

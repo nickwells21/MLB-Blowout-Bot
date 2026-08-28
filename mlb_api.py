@@ -243,13 +243,29 @@ def get_linescore(boxscore):
 
 
 def get_linescore_detail(game_pk):
-    """Fetch the live linescore endpoint for a game and return the current
-    inning/half, ball-strike-out count, and score. Used to render the live
-    dashboard row for each in-progress game."""
+    """Fetch the live linescore endpoint and return everything the dashboard
+    can use from it.
+
+    One request, and the response already carries the full inning-by-inning
+    grid, the R/H/E line, who is at bat, and every fielder by position -- so
+    all of it below is free. Nothing here adds a call or affects polling.
+
+    The `defense` block is worth more to this bot than it looks: it names the
+    position players standing on the field, i.e. exactly the pool the losing
+    team would pull from to send someone to the mound."""
     resp = requests.get(f"{BASE}/game/{game_pk}/linescore", timeout=15)
     resp.raise_for_status()
     data = resp.json()
     teams = data.get("teams") or {}
+    home, away = teams.get("home") or {}, teams.get("away") or {}
+    offense = data.get("offense") or {}
+    defense = data.get("defense") or {}
+    is_top = data.get("isTopInning")
+
+    def _nm(block, key):
+        v = block.get(key)
+        return v.get("fullName") if isinstance(v, dict) else None
+
     return {
         "inning": data.get("currentInning"),
         "inning_ordinal": data.get("currentInningOrdinal"),
@@ -257,8 +273,41 @@ def get_linescore_detail(game_pk):
         "balls": data.get("balls"),
         "strikes": data.get("strikes"),
         "outs": data.get("outs"),
-        "home_runs": (teams.get("home") or {}).get("runs", 0),
-        "away_runs": (teams.get("away") or {}).get("runs", 0),
+        "home_runs": home.get("runs", 0),
+        "away_runs": away.get("runs", 0),
+        # --- R/H/E line, free in the same payload ---
+        "home_hits": home.get("hits"),
+        "away_hits": away.get("hits"),
+        "home_errors": home.get("errors"),
+        "away_errors": away.get("errors"),
+        "home_lob": home.get("leftOnBase"),
+        "away_lob": away.get("leftOnBase"),
+        # --- half-inning context ---
+        "is_top_inning": is_top,
+        "scheduled_innings": data.get("scheduledInnings"),
+        # Top of the inning means the away team bats and the home team fields.
+        "batting_side": ("away" if is_top else "home") if is_top is not None else None,
+        "fielding_side": ("home" if is_top else "away") if is_top is not None else None,
+        # --- who is up, who is on the mound ---
+        "batter": _nm(offense, "batter"),
+        "on_deck": _nm(offense, "onDeck"),
+        "current_pitcher": _nm(defense, "pitcher"),
+        # --- the fielders (the position-player pool) ---
+        "innings": [
+            {
+                "num": i.get("num"),
+                "ordinal": i.get("ordinalNum"),
+                "away_runs": (i.get("away") or {}).get("runs"),
+                "home_runs": (i.get("home") or {}).get("runs"),
+            }
+            for i in (data.get("innings") or [])
+        ],
+        "defense": {
+            k: _nm(defense, k)
+            for k in ("catcher", "first", "second", "third", "shortstop",
+                      "left", "center", "right")
+            if _nm(defense, k)
+        },
     }
 
 
