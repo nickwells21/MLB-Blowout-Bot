@@ -988,15 +988,12 @@ def _classify(hit, boxscore, linescore, inning):
 
 
 def _pen_intel_worth_it(box, detail, urgency):
-    """Whether to attach remaining-pen data to a game in the snapshot.
+    """Whether a game's pen is in a state worth calling out.
 
-    Not a rule and not a gate on any alert -- purely a payload decision. The
-    full graded pen runs ~6KB per team, and the dashboard refetches every 15s,
-    so attaching it to all fifteen games of a quiet slate would cost a phone
-    tens of MB an hour to describe games where nobody is close to conceding.
-
-    Attach it wherever the thesis is actually live: urgency latched, a lead
-    worth betting, or a pen already being worked.
+    No longer gates the snapshot -- `bullpen.compact()` cut the per-team
+    payload far enough that every live game can carry it, which is what makes
+    the data visible on any game you happen to open rather than only the loud
+    ones. Kept because "is the thesis live here" is a useful predicate.
     """
     if urgency:
         return True
@@ -1581,18 +1578,12 @@ def _write_live_snapshot(game_pks, alerted=None):
                     # and season lines are cached for the day, so this adds no
                     # per-poll requests -- but it is bulky, so it rides along
                     # only where the thesis is live. See _pen_intel_worth_it.
-                    **(
-                        {
-                            "away_remaining": _safe(
-                                "remaining/away", bullpen.get_remaining,
-                                box, "away", entry.get("away_id")),
-                            "home_remaining": _safe(
-                                "remaining/home", bullpen.get_remaining,
-                                box, "home", entry.get("home_id")),
-                        }
-                        if _pen_intel_worth_it(box, detail, game.get("urgency"))
-                        else {}
-                    ),
+                    "away_remaining": bullpen.compact(_safe(
+                        "remaining/away", bullpen.get_remaining,
+                        box, "away", entry.get("away_id"))),
+                    "home_remaining": bullpen.compact(_safe(
+                        "remaining/home", bullpen.get_remaining,
+                        box, "home", entry.get("home_id"))),
                     # Position players currently on the field -- the pool the
                     # trailing team would pull from to send someone to pitch.
                     "defense": detail.get("defense") or {},

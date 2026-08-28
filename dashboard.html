@@ -1333,10 +1333,10 @@ function remBlock(g, side) {
             + '<span class="nm">' + esc(a.name) + '</span>'
             + '<span class="st">' + esc(a.era != null ? a.era : '\u2014') + '</span>'
             + '<span class="st">' + (a.k_bb_pct != null ? esc(a.k_bb_pct) + '%' : '\u2014') + '</span>'
-            + '<span class="fat ' + esc((a.workload || {}).availability || 'UNKNOWN') + '">'
-            +   esc((a.workload || {}).availability || '\u2014') + '</span>'
-            + '<span class="why">' + esc([(a.why || []).join(', '),
-                  (a.workload || {}).why].filter(Boolean).join(' \u00b7 ')) + '</span>'
+            + '<span class="fat ' + esc(a.avail || 'UNKNOWN') + '">'
+            +   esc(a.avail || '\u2014') + '</span>'
+            + '<span class="why">' + esc([a.why, a.avail_why]
+                  .filter(Boolean).join(' \u00b7 ')) + '</span>'
             + '</div>').join('') + '</div>'
         : '<div class="nodata">No arms left on the active roster.</div>')
     + '<div class="rem-note">ERA \u00b7 K-BB% are season. Graded on K-BB%, K%, BB% and ERA \u2014 '

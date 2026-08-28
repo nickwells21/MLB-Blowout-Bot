@@ -339,6 +339,46 @@ def get_arm(team_id, person_id, date_str=None):
     return {**_public(arm), "verdict": verdict, "why": hits, "workload": coming_in}
 
 
+def compact(remaining):
+    """Trim a get_remaining() result down to what the dashboard actually
+    renders. The full object carries ~25 fields per arm; the UI shows eight.
+    On a feed the phone refetches every 15 seconds that difference is the
+    whole reason the data had to be rationed in the first place -- so ration
+    the fields instead of the games, and it can ride along everywhere.
+
+    Full detail stays available server-side via get_remaining()."""
+    if not remaining:
+        return remaining
+    slim = []
+    for a in remaining.get("arms", []):
+        w = a.get("workload") or {}
+        slim.append({
+            "name": a.get("name"),
+            "verdict": a.get("verdict"),
+            "era": a.get("era"),
+            "whip": a.get("whip"),
+            "k_bb_pct": a.get("k_bb_pct"),
+            "why": ", ".join(a.get("why") or []),
+            "avail": w.get("availability"),
+            "avail_why": w.get("why"),
+            "days_rest": w.get("days_rest"),
+            "pitches_2d": w.get("pitches_2d"),
+        })
+    return {
+        "arms": slim,
+        "count": remaining.get("count"),
+        "verdict": remaining.get("verdict"),
+        "combined_era": remaining.get("combined_era"),
+        "avg_k_bb_pct": remaining.get("avg_k_bb_pct"),
+        "attack_count": remaining.get("attack_count"),
+        "gassed_count": remaining.get("gassed_count"),
+        "limited_count": remaining.get("limited_count"),
+        "ready_count": remaining.get("ready_count"),
+        "pen_pitches_2d": remaining.get("pen_pitches_2d"),
+        "starter_count": remaining.get("starter_count"),
+    }
+
+
 def get_remaining(boxscore, side, team_id, date_str=None):
     """Arms the team has NOT used yet this game, graded and summarised.
 
