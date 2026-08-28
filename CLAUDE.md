@@ -156,6 +156,15 @@ Three things the scheduler has to get right, all of which bit us:
 - **Day boundaries are Eastern, not UTC.** A game starting `01:05Z` has
   `officialDate` of the *previous* day and belongs to that slate. Filtering on
   anything but `officialDate` makes the bot sleep through late west-coast games.
+- **A slate does not end at midnight ET.** `today_et()` rolls forward at
+  midnight while west-coast games are in the 7th. Their `officialDate` is still
+  *yesterday*, so asking only for today's date drops them, and the scheduler --
+  seeing tomorrow's first pitch hours away -- goes to sleep mid-game. On
+  2026-08-27 this put the bot to sleep at 11:00pm CT with Arizona four
+  relievers deep in a 1-6 game; neither bullpen rung was ever sent.
+  `_carryover_live_pks()` checks the previous ET day (only before
+  `CARRYOVER_UNTIL_HOUR_ET`) and both `run_once` and every sleep branch honour
+  it. **Never sleep while any game is live, whatever date it belongs to.**
 - **Postponed/Cancelled games report `abstractGameState: "Final"`.** Only
   `detailedState` distinguishes them. `compute_window` excludes them from both
   the game count and the all-Final check; trust its `is_postponed` flag.

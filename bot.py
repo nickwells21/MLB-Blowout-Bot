@@ -1606,6 +1606,37 @@ def _write_live_snapshot(game_pks, alerted=None):
     return payload
 
 
+# Games essentially never run past this ET hour, so the carryover lookup is
+# skipped for most of the day rather than costing a request every poll.
+CARRYOVER_UNTIL_HOUR_ET = 6
+
+
+def _carryover_live_pks(today_str):
+    """Games from the PREVIOUS Eastern day that are still being played.
+
+    MLB assigns a game to a slate by officialDate, so a 9:45pm ET first pitch
+    belongs to THAT day -- but it is still in the 8th inning after midnight,
+    by which time today_et() has rolled to the next date. Asking only for
+    "today" drops the game, the scheduler sees tomorrow's slate hours away,
+    and it goes to sleep mid-game.
+
+    That is not hypothetical: on 2026-08-27 the bot went to sleep at 11:00pm CT
+    with Arizona four relievers deep in a 1-6 game, and neither bullpen rung
+    was ever sent.
+    """
+    from datetime import date, datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    if datetime.now(ZoneInfo("America/New_York")).hour >= CARRYOVER_UNTIL_HOUR_ET:
+        return []
+    try:
+        prev = (date.fromisoformat(today_str) - timedelta(days=1)).isoformat()
+        return mlb_api.get_live_game_pks(prev)
+    except Exception as e:
+        print(f"[bot] Carryover lookup failed (continuing): {e}")
+        return []
+
+
 def run_once(alerted):
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -1615,6 +1646,11 @@ def run_once(alerted):
     # date.today() rolls over to tomorrow while west-coast games are still live.
     today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     game_pks = mlb_api.get_live_game_pks(today)
+    # A game that started before midnight ET is on yesterday's slate by
+    # officialDate but is still being played. Keep watching it.
+    for pk in _carryover_live_pks(today):
+        if pk not in game_pks:
+            game_pks.append(pk)
     alerts_this_cycle = []
     for game_pk in game_pks:
         try:
@@ -1749,6 +1785,18 @@ def run_scheduled(alerted):
 
         # Slate is over (or empty) -- sleep to the next day that has games.
         if not window.get("game_count") or window.get("all_final"):
+            # Same carryover guard: "today has no games" is not a reason to
+            # stop watching a game from last night that is still going.
+            if _carryover_live_pks(today):
+                _bot_state = "scanning"
+                payload = None
+                try:
+                    payload = run_once(alerted)
+                    state.save_alerted(alerted)
+                except Exception as e:
+                    print(f"[bot] Poll error: {e}")
+                time.sleep(_poll_interval_for(payload))
+                continue
             reason = "no games today" if not window.get("game_count") else "slate complete"
             target, target_day = _next_slate_start(today)
             if target is None:
@@ -1780,6 +1828,19 @@ def run_scheduled(alerted):
         if first:
             wake_at = first - timedelta(seconds=PREGAME_LEAD_SECONDS)
             if now < wake_at:
+                # ...unless last night's slate is still being played. At
+                # midnight ET `today` rolls forward while west-coast games are
+                # in the 7th, and sleeping here abandons them mid-game.
+                if _carryover_live_pks(today):
+                    _bot_state = "scanning"
+                    payload = None
+                    try:
+                        payload = run_once(alerted)
+                        state.save_alerted(alerted)
+                    except Exception as e:
+                        print(f"[bot] Poll error: {e}")
+                    time.sleep(_poll_interval_for(payload))
+                    continue
                 _sleep_until(wake_at, f"first pitch {first.isoformat()}")
                 continue
 
