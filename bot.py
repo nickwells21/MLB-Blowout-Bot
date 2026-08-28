@@ -87,8 +87,6 @@ BULLPEN_CRITICAL_COUNT = int(os.environ.get("BULLPEN_CRITICAL_COUNT", "4"))
 # How often (seconds) to push a slate-wide summary, independent of any
 # individual alert. Rolling cadence from process start, not wall-clock-
 # aligned (i.e. "every hour on the hour" would need different logic).
-SUMMARY_INTERVAL_SECONDS = int(os.environ.get("SUMMARY_INTERVAL_SECONDS", "3600"))
-_last_summary_at = time.time()
 
 # Big-lead watch tier: independent of the position-player detection entirely.
 # Fires on run differential alone, any inning, re-alerting every BIG_LEAD_STEP
@@ -178,6 +176,17 @@ _last_digest_lead = {}
 # Adding a tier means adding a rank here. Forgetting to is safe by construction:
 # unranked alerts sort below everything, so a new tier can never bury a critical
 # one no matter where its call is placed in check_game().
+# True only for the first poll after the process starts. See AlertBus.flush.
+_seeding = True
+
+
+def _seeding_poll_done():
+    """Called once the first poll completes, so later polls alert normally."""
+    global _seeding
+    if _seeding:
+        _seeding = False
+
+
 ALERT_RANK = {
     "urgency_off": 10,        # informational, the game stopped being interesting
     "inning_digest": 20,      # routine per-inning traffic
@@ -263,12 +272,31 @@ class AlertBus:
 
     def flush(self):
         """Send the batch, least important first. Returns the kinds actually
-        sent, in send order."""
+        sent, in send order.
+
+        During the first poll after the process starts, every non-golden alert
+        is computed and marked as alerted but NOT sent -- see _seeding_poll().
+        """
         self._fold()
         # Stable sort: same-rank alerts keep the order the tiers computed them
         # in (several golden hits in one poll stay chronological).
         ordered = sorted(self._pending, key=lambda a: a["rank"])
         self._pending = []
+        if _seeding:
+            # First poll after a restart. Every condition already true when we
+            # booted (a lead that crossed hours ago, a bullpen already three
+            # deep) would otherwise re-fire as though it just happened, which
+            # is what made every redeploy replay the whole slate. The tiers
+            # have already recorded their keys in `alerted`, so dropping the
+            # sends here adopts the current state silently.
+            #
+            # GOLDEN IS EXEMPT. A position player on the mound at boot is the
+            # one thing worth a push even if it started before we did.
+            held = [a["kind"] for a in ordered if a["kind"] != "golden"]
+            if held:
+                print(f"[bot] Startup: adopted {len(held)} in-progress "
+                      f"condition(s) without alerting: {', '.join(held)}")
+            ordered = [a for a in ordered if a["kind"] == "golden"]
         sent = []
         for alert in ordered:
             try:
@@ -469,9 +497,10 @@ def check_inning_report(game_pk, boxscore, linescore, inning, inning_ordinal,
     current lead (and how far it moved since the last report), and the trailing
     team's bullpen state -- relievers used, who is on the mound, pitch count.
 
-    Big Lead Watch folds into this push when both land on the same poll (see
-    AlertBus.merge_into). Extreme Lead deliberately does NOT: a lead actively
-    running away is escalation, not routine traffic, and it outranks this.
+    This is the quietest push the bot sends (ntfy "low"). Nothing folds into
+    it any more: Big Lead and Extreme Lead are things you would look up from
+    the game for, and folding them here would demote them to this one's
+    priority.
 
     Unchanged from before: urgency-mode only, once per Top/Bottom transition.
     """
@@ -479,10 +508,10 @@ def check_inning_report(game_pk, boxscore, linescore, inning, inning_ordinal,
         return
     if not _in_urgency(game_pk, alerted):
         return
-    # Suppressed when a higher-ranked push on this same poll already says
-    # everything this one would -- urgency entry and a bullpen rung both carry
-    # score, inning and bullpen state. The baseline was already advanced by
-    # consume_inning_change(), so a suppressed report costs no future one.
+    # Suppressed only by urgency ENTRY, whose message already is a full
+    # report and which fires once per game. A bullpen rung does NOT suppress
+    # it. The baseline was already advanced by consume_inning_change(), so a
+    # suppressed report costs no future one.
     if suppress:
         return
 
@@ -512,7 +541,11 @@ def check_inning_report(game_pk, boxscore, linescore, inning, inning_ordinal,
         "inning_digest",
         f"Inning Report - {inning_state} {inning_ordinal or inning}",
         "\n".join(parts),
-        priority="high",
+        # Deliberately the quietest push the bot sends. It is context for a
+        # game you are probably already watching, so it must never buzz harder
+        # than Big Lead or Bullpen Exhausted, which are the ones worth looking
+        # up for.
+        priority="low",
         tags="stopwatch",
     )
 
@@ -588,7 +621,10 @@ def check_big_lead(game_pk, linescore, inning, inning_ordinal, inning_state, out
         # inning and bullpen state, so on those polls this is a redundant
         # second push -- fold the news into whichever one is going out. Urgency
         # entry is preferred because it suppresses the inning report anyway.
-        merge_into=("urgency_on", "inning_digest"),
+        # Folds into Urgency Mode ON (which outranks it) but NOT into the
+        # inning report -- folding there would demote a Big Lead into the
+        # quietest push on the board.
+        merge_into=("urgency_on",),
         merge_line=tail,
     )
 
@@ -990,14 +1026,15 @@ def check_game(game_pk, alerted):
             alerted, bus)
         _safe("big_lead", check_big_lead,
             game_pk, linescore, inning, inning_ordinal, inning_state, outs, alerted, bus)
-        # Urgency entry and a bullpen rung both already carry score, inning and
-        # bullpen state, so the routine inning report would be a second push
-        # saying less. Its baseline is already advanced, so skipping is free.
+        # A bullpen rung no longer suppresses this: both go out, and because
+        # the rung outranks the report it is sent last and sits on top, with
+        # the inning report directly beneath it. Urgency ENTRY still suppresses
+        # -- that message already is a full report, and it fires once.
         _safe("inning_report", check_inning_report,
             game_pk, boxscore, linescore, inning, inning_ordinal, inning_state, outs,
             alerted, bus,
             changed=bool(inning_changed),
-            suppress=bool(entered_urgency) or bool(bullpen_rung))
+            suppress=bool(entered_urgency))
         # Both urgency entry and a bullpen rung already name the incoming
         # pitcher, so the generic pitcher-change ping would be a second push
         # for one move.
@@ -1410,51 +1447,6 @@ def _write_live_snapshot(game_pks, alerted=None):
     return payload
 
 
-def _maybe_send_hourly_summary(games, defer=False):
-    """Push a slate-wide digest -- every live game, ranked biggest lead to
-    smallest (same ordering as the dashboard) -- on a rolling interval,
-    independent of whether any individual alert has fired. Lets you glance
-    at your phone instead of the dashboard to see where the whole slate
-    stands.
-
-    `defer` holds it back when a real alert fired in this same poll cycle. This
-    summary is the lowest-value push the bot sends and it goes out after the
-    per-game batches, which would put it on top of them -- the same burying
-    that ALERT_RANK exists to prevent, one level up. Deferring costs at most one
-    poll interval, and the clock is deliberately NOT advanced so it goes out on
-    the next quiet cycle rather than being skipped for the hour."""
-    global _last_summary_at
-    now = time.time()
-    if now - _last_summary_at < SUMMARY_INTERVAL_SECONDS:
-        return
-    if defer:
-        return
-    _last_summary_at = now
-
-    if not games:
-        message = "No live MLB games right now."
-    else:
-        ranked = sorted(
-            games,
-            key=lambda g: abs((g.get("home_runs") or 0) - (g.get("away_runs") or 0)),
-            reverse=True,
-        )
-        lines = []
-        for g in ranked:
-            lead = abs((g.get("home_runs") or 0) - (g.get("away_runs") or 0))
-            inning_bit = g.get("inning_ordinal") or g.get("inning") or "?"
-            state_bit = g.get("inning_state") or ""
-            lines.append(
-                f"{g.get('away_team')} {g.get('away_runs', 0)} - "
-                f"{g.get('home_team')} {g.get('home_runs', 0)} "
-                f"({state_bit} {inning_bit}, lead {lead})".replace("  ", " ")
-            )
-        message = "\n".join(lines)
-
-    title = f"Hourly Slate Summary ({len(games)} live)"
-    notifier.send_alert(title, message, priority="default", tags="bar_chart")
-
-
 def run_once(alerted):
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -1472,10 +1464,9 @@ def run_once(alerted):
             print(f"[bot] Error checking game {game_pk}: {e}")
     _write_status(len(game_pks))
     snapshot_payload = _write_live_snapshot(game_pks, alerted)
-    # The snapshot now carries the whole slate; the summary is about live games
-    # only, so filter rather than reporting scheduled games as in progress.
-    live_only = [g for g in snapshot_payload.get("games", []) if g.get("is_live")]
-    _maybe_send_hourly_summary(live_only, defer=bool(alerts_this_cycle))
+    # The first poll only adopted whatever was already in progress; from here
+    # on alerts send normally.
+    _seeding_poll_done()
     return snapshot_payload
 
 
@@ -1728,48 +1719,6 @@ def run_loop(alerted):
         run_unscheduled(alerted)
 
 
-def notify_startup():
-    """Fire a low-key confirmation push every time the bot process starts, so
-    activating it (either `python bot.py` or `python app.py`) gives immediate
-    proof of life instead of trusting a silent background process. Distinct
-    from real alerts: plain title, "default" priority, checkmark tag."""
-    title = "Bot Started"
-    message = (
-        "MLB Blowout Bot is online and sweeping today's live games.\n"
-        f"Blowout tier: {RUN_DIFF_MID}+ runs (innings 1-6) / "
-        f"{RUN_DIFF_LATE}+ runs (7+).\n"
-        f"Bullpen Exhausted: {BULLPEN_EXHAUSTION_COUNT} relievers -> high, "
-        f"{BULLPEN_CRITICAL_COUNT} -> urgent (any inning, any lead).\n"
-        f"Big Lead Watch: {BIG_LEAD_THRESHOLD}+ run lead, any inning, re-alerts every "
-        f"{BIG_LEAD_STEP} runs.\n"
-        f"Extreme Lead Alert: {EXTREME_LEAD_THRESHOLD}+ run lead, re-alerts every "
-        f"{EXTREME_LEAD_STEP} runs at urgent priority.\n"
-        f"Pitcher Change Alert: urgent ping on any new reliever once a game is big-lead "
-        f"flagged.\n"
-        f"Urgency Mode: {URGENCY_RUN_DIFF}+ lead AND {URGENCY_MIN_RELIEVERS}+ relievers used "
-        f"-> one Inning Report every half-inning (lead + bullpen state) plus every "
-        f"pitcher change (exits below {URGENCY_EXIT_RUN_DIFF}).\n"
-        f"Alerts arriving together are sent least-important-first, so the most "
-        f"important one sits on top of your notifications.\n"
-        f"Polling every {POLL_INTERVAL_SECONDS}s."
-    )
-    if SCHEDULE_ENABLED and schedule is not None:
-        try:
-            w = schedule.compute_window(schedule.today_et())
-            if w.get("game_count"):
-                first = w.get("first_pitch_utc")
-                message += (
-                    f"\n\nToday: {w['game_count']} game(s)."
-                    + (f" First pitch {first.isoformat()}." if first else "")
-                    + " Sleeping outside the window."
-                )
-            else:
-                message += "\n\nNo games today -- sleeping until the next slate."
-        except Exception as e:
-            message += f"\n\nSchedule lookup failed at startup: {e}"
-    notifier.send_alert(title, message, priority="default", tags="white_check_mark")
-
-
 def main():
     print(
         f"MLB Blowout Bot starting. Blowout tier: "
@@ -1778,7 +1727,6 @@ def main():
         f"{BULLPEN_CRITICAL_COUNT} (urgent), any inning. "
         f"Polling every {POLL_INTERVAL_SECONDS}s."
     )
-    notify_startup()
     alerted = state.load_alerted()
     try:
         run_loop(alerted)

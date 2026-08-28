@@ -35,17 +35,24 @@ Six distinct notification types, all pushed via ntfy.sh to topic `MLB_Bets-Blowo
 | **Bullpen Exhausted — URGENT** | Trailing team has used **4** relievers | urgent | Once per game per side |
 | **GOLDEN — Position Player** | A field player takes the mound. **Always fires, overrides every rule above** | urgent | Once per player |
 
-Plus an **Hourly Slate Summary** (every live game ranked by lead) and a **Bot Started** ping on every process start.
+There is no hourly summary and no "Bot Started" ping. Both were removed: they
+were volume between the alerts that matter, and the startup ping fired on every
+redeploy.
+
+**Priority is set so the routine push is the quiet one.** The Inning Report
+sends at ntfy `low` — silent, for a game you are already watching. Big Lead
+(`default`), Bullpen Exhausted (`high`/`urgent`) and GOLDEN (`urgent`) all
+outrank it, by design.
 
 **Tier interaction rules that matter:**
 - Big Lead self-suppresses at 10+ so Extreme owns that range — no double-firing at lead 12.
 - Pitcher Change alerts pick their label from the strongest active state: **urgency > extreme > big lead**. One push per substitution, never one per matching tier.
 - The Urgency Mode entry message already names the incoming pitcher and current inning, so the Pitcher Change and Inning Report pushes are suppressed on that exact poll.
 - If the new arm is a *position player*, both Pitcher Change and the Bullpen ladder stay silent and let the GOLDEN tier own the moment.
-- A bullpen rung that fires suppresses **both** Pitcher Change and the Inning Report on that same poll, exactly as Urgency Mode entry does. The rung is still marked as alerted, so a suppressed rung can never fire late.
+- A bullpen rung suppresses **Pitcher Change** but **not** the Inning Report: both go out, and because the rung outranks the report it is sent last and sits directly above it. Urgency Mode *entry* still suppresses the report, since that message already is a full report and fires once per game.
 - The bullpen ladder is keyed per side, so a lead change starts a fresh ladder for the newly trailing team.
-- Big Lead Watch **folds into** the Inning Report (or the Urgency Mode ON message) when they land on the same poll, so an inning boundary is one push, not two. Extreme Lead never folds. Mid-inning, both lead tiers push immediately on their own.
-- The Hourly Slate Summary is deferred one poll if any game alert fired in the same cycle, so it can't sit on top of them.
+- Big Lead Watch folds into the **Urgency Mode ON** message only. It no longer folds into the Inning Report — folding there would demote a Big Lead to the report's `low` priority, and it is one of the two alerts that must outrank it. Extreme Lead never folds. Mid-inning, both lead tiers push immediately on their own.
+- **A restart never replays the slate.** The first poll after the process starts adopts whatever is already in progress without alerting; only GOLDEN still fires. See `AlertBus.flush()`.
 
 ### Send order is the real priority system
 

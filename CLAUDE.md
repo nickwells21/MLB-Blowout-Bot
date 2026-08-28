@@ -97,10 +97,21 @@ same poll — both already carry score, inning and bullpen state. `_last_half_in
 is advanced by `consume_inning_change()` at the top of every poll, before any
 tier can raise, so a suppressed or folded boundary can never re-fire later.
 
-The hourly slate summary is held back a poll when any game alert fired in the
-same cycle — it is sent after the per-game batches and would otherwise sit on
-top of them. The clock is not advanced, so it goes out on the next quiet poll
-rather than being skipped.
+**Volume is a feature requirement, not a detail.** The bot competes with the
+game itself for attention, so every push has to earn its buzz. There is no
+hourly summary and no "Bot Started" ping — both were removed because they
+were noise between the alerts that matter. The Inning Report is deliberately
+ntfy priority `low`: it arrives silently for a game you are already watching
+and must never buzz harder than Big Lead or Bullpen Exhausted.
+
+**A restart must not replay the slate.** Every redeploy restarts the process,
+and conditions already true at boot (a lead that crossed hours ago, a bullpen
+already three deep) would otherwise all re-fire at once. The first poll after
+startup runs in seeding mode: tiers compute and record their keys as normal,
+but `AlertBus.flush()` drops every non-golden send and logs what it adopted.
+GOLDEN is exempt — a position player on the mound at boot is worth a push even
+if it started before we did. This is belt-and-braces with `DATA_DIR`
+persistence: it makes restarts quiet even if the volume is not mounted.
 
 **The bullpen depth ladder** (`check_bullpen_depth`) is the escalation that
 leads into Tier 0. It fires on the trailing team's reliever count alone — no

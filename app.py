@@ -35,7 +35,6 @@ def _run_bot_loop():
         f"polling every {bot.POLL_INTERVAL_SECONDS}s. "
         f"Game-window scheduling: {'on' if bot.SCHEDULE_ENABLED else 'off'}."
     )
-    bot.notify_startup()
     alerted = state.load_alerted()
     # run_loop owns its own error handling and sleeping; if it ever escapes,
     # restart it rather than letting the thread die silently.

@@ -195,13 +195,27 @@ def poll(box, inning, inning_state, alerted, outs=1, ordinal=None):
     return bot.check_game(GAME_PK, alerted)
 
 
-def reset():
+def priority_map(sent):
+    """kind -> ntfy priority. SENT and the kinds poll() returns are parallel
+    lists in the same send order, so they zip."""
+    return {kind: SENT[i][2] for i, kind in enumerate(sent)}
+
+
+def reset(seeding=False):
+    """Fresh state for one scenario.
+
+    `seeding` models a bot that has just started: its first poll adopts
+    whatever is already in progress instead of alerting on it. Every scenario
+    except the restart ones wants seeding OFF, i.e. a bot that has been
+    running and is seeing a genuine new transition.
+    """
     SENT.clear()
     ALERT_LOG.clear()
     ROSTER.clear()
     bot._last_half_inning.clear()
     bot._last_pitcher_count.clear()
     bot._last_digest_lead.clear()
+    bot._seeding = bool(seeding)
     return set()
 
 
@@ -265,8 +279,11 @@ def scenario_reported_bug():
     check("bullpen_exhausted" in sent, "bullpen rung fired", f"got {sent}")
     check(sent[-1] == "bullpen_exhausted",
           "bullpen rung is the LAST push sent (top of the stack)", f"got {sent}")
-    check("inning_digest" not in sent,
-          "routine inning report suppressed -- the rung already says it all", f"got {sent}")
+    check("inning_digest" in sent,
+          "inning report still sent -- a rung no longer suppresses it", f"got {sent}")
+    check(sent.index("inning_digest") < sent.index("bullpen_exhausted"),
+          "inning report sent BEFORE the rung, so the rung sits above it",
+          f"got {sent}")
     last_body = SENT[-1][1]
     check("reliever(s) used" in last_body and "On the mound" in last_body,
           "bullpen push carries relievers-used + who is on the mound",
@@ -346,15 +363,23 @@ def scenario_digest_consolidation():
     box = boxscore(2, 11, arms("1", 3), arms("2", 1))   # lead 6 -> 9, new bucket
     sent = poll(box, 5, "Bottom", alerted)
 
-    check(sent == ["inning_digest"], "exactly one push at the inning boundary", f"got {sent}")
+    # Big Lead no longer folds in: folding would demote it to the report's
+    # "low" priority, and it is one of the two alerts that must outrank it.
+    check(sent == ["inning_digest", "big_lead"],
+          "report and big lead both sent, report first", f"got {sent}")
     text = SENT[0][1]
     check("Bottom 5th" in SENT[0][0] or "5th" in SENT[0][0],
           "report titled with the half-inning", SENT[0][0])
     check("(lead 9)" in text, "report carries the current lead", repr(text))
     check("On the mound" in text and "reliever(s) used" in text,
           "report carries the trailing bullpen state", repr(text))
-    check("Lead is up to 9 runs" in text,
-          "big-lead update folded into the report instead of racing it", repr(text))
+    check("Lead is up to 9 runs" not in text,
+          "big lead NOT folded into the report", repr(text))
+    prio = priority_map(sent)
+    check(prio.get("inning_digest") == "low",
+          "inning report is the quietest push", prio.get("inning_digest"))
+    check(prio.get("big_lead") != "low",
+          "big lead is louder than the inning report", prio.get("big_lead"))
     check("Lead +3 since the last report." in text,
           "report says how far the lead moved", repr(text))
 
@@ -507,6 +532,52 @@ def scenario_ladder_integrity():
           "a fold with no target emits on its own instead of vanishing", f"got {order}")
 
 
+def scenario_restart_does_not_replay():
+    """Every redeploy restarts the process. Conditions that were already true
+    when it booted must be adopted silently instead of re-firing as though
+    they just happened -- that replay was the single biggest source of
+    notification volume. Golden is the one exemption."""
+    print("\n[8] a restart adopts the slate instead of replaying it")
+
+    # --- boot straight into a game already deep in a blowout ---
+    alerted = reset(seeding=True)
+    box = boxscore(2, 11, arms("1", 4), arms("2", 1))   # lead 9, 3 relievers
+    sent = poll(box, 5, "Bottom", alerted)
+
+    check(sent == [], "a restart mid-blowout sends nothing", f"got {sent}")
+    check(len(alerted) > 0,
+          "but the conditions were recorded, not ignored", f"got {len(alerted)}")
+
+    # --- the very next poll is a normal one ---
+    bot._seeding = False
+    SENT.clear()
+    before = set(alerted)
+    resent = poll(box, 5, "Bottom", alerted)
+    check(resent == [],
+          "adopted conditions do not re-fire once seeding ends", f"got {resent}")
+    check(set(alerted) == before, "no new keys from an unchanged board", "changed")
+
+    # --- a genuine new transition after the restart still alerts ---
+    SENT.clear()
+    box2 = boxscore(2, 11, arms("1", 5), arms("2", 1))  # 4th reliever = critical
+    after = poll(box2, 6, "Top", alerted)
+    check(after != [], "a NEW transition after a restart still alerts", f"got {after}")
+    check("bullpen_critical" in after,
+          "the new bullpen rung fired", f"got {after}")
+
+    # --- golden is exempt: a position player pitching at boot still pushes ---
+    alerted = reset(seeding=True)
+    away = arms("1", 3) + [pitcher(199, "Ezequiel Tovar", position="SS")]
+    box3 = boxscore(2, 11, away, arms("2", 1))
+    sent = poll(box3, 5, "Bottom", alerted)
+
+    check("golden" in sent,
+          "GOLDEN still fires on the first poll after a restart", f"got {sent}")
+    check(sent == ["golden"],
+          "and it is the ONLY thing that does", f"got {sent}")
+    check(len(ALERT_LOG) == 1, "golden logged exactly once", f"got {len(ALERT_LOG)}")
+
+
 def main():
     scenario_reported_bug()
     scenario_golden_on_top()
@@ -515,6 +586,7 @@ def main():
     scenario_urgency_entry()
     scenario_sabotage()
     scenario_ladder_integrity()
+    scenario_restart_does_not_replay()
 
     print("\n" + "=" * 62)
     print(f"{len(PASSES)} passed, {len(FAILURES)} failed")
