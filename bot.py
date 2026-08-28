@@ -807,6 +807,20 @@ def check_bullpen_depth(game_pk, boxscore, linescore, inning, inning_ordinal, in
     pen_line = _bullpen_state_line(boxscore, trailing)
     if pen_line:
         parts.append(pen_line)
+
+    # What just walked in, how tired he is, and what is left behind him. This
+    # is the rung that leads into Tier 0, so it is the push that most needs to
+    # say whether the lead is likely to keep growing.
+    team_id = linescore.get(f"{trailing}_id")
+    parts.extend(_arm_intel_lines(boxscore, trailing, team_id))
+    left_line = _remaining_line(boxscore, trailing, team_id)
+    if left_line:
+        parts.append(left_line)
+    fatigue_line = _pen_fatigue_line(boxscore, trailing, team_id)
+    if fatigue_line:
+        parts.append(fatigue_line)
+
+    parts.append("")
     parts.append(closer)
     if lead > 0:
         parts.append(f"{leading_team} lead: {lead}.")
