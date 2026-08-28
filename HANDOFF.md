@@ -158,8 +158,23 @@ The dashboard is a **static HTML file that polls three JSON endpoints every 15 s
           "player_id": 675512,
           "name": "Troy Melton",
           "position": "P",
+          "is_position_player": false,
           "innings_pitched": "2.0",
           "pitches": 30,
+          "strikes": 19,
+          "balls": 11,
+          "strike_pct": 63,
+          "hits": 2,
+          "runs": 1,
+          "earned_runs": 1,
+          "walks": 1,
+          "strikeouts": 3,
+          "home_runs": 0,
+          "batters_faced": 8,
+          "outs": 6,
+          "era": "4.15",
+          "note": "(W, 9-2)",
+          "is_starter": true,
           "is_current": true
         }
       ],
@@ -185,8 +200,11 @@ Notes for anyone rendering this:
 - `fetched_at` is an **epoch float**, unlike `last_checked` which is an ISO string.
 - `odds` is **`null`** whenever the book doesn't post that matchup or the snapshot hasn't refreshed. Always guard it.
 - `inning_state` is `"Top"`, `"Middle"`, `"Bottom"`, or `"End"`.
-- Bullpen arrays are **chronological** — starter first, current pitcher last. Only the last entry has `is_current: true`. MLB writes final pitch counts on exit, so earlier entries freeze on their own.
+- Bullpen arrays are **chronological** — starter first, current pitcher last. Only the first entry has `is_starter: true` and only the last has `is_current: true`. MLB writes final pitch counts on exit, so earlier entries freeze on their own.
 - `innings_pitched` is MLB notation: `"3.1"` means 3⅓ innings, **not** 3.1.
+- **Every per-pitcher stat is free.** `strikes` / `balls` / `hits` / `runs` / `earned_runs` / `walks` / `strikeouts` / `home_runs` / `batters_faced` / `outs` all come out of the boxscore the bot already fetches on every poll, `era` out of that same payload's `seasonStats`, and `strike_pct` is computed locally as `round(100 * strikes / pitches)`. The fuller pitcher line costs **zero extra API requests** and does not touch polling frequency — do not add a separate fetch for any of it.
+- `era` is a **string** (`"4.15"`, or `"-.--"` / `"INF"` for a pitcher with no season innings), not a number. `note` is MLB's own decision string (`"(W, 9-2)"`, `"(H, 12)"`) and is usually absent.
+- **Any of these can be `null` or missing** — a pitcher who has just entered has no line yet, and `strike_pct` is `null` whenever `pitches` is 0 or absent. Render an em dash, never `NaN`.
 - Spread ladders arrive unfiltered and unsorted, up to 18 rungs including unbettable lock lines. The existing dashboard filters to the side matching the moneyline sign, drops anything outside ±600, sorts by absolute point, and caps at 8.
 
 ### `GET /alerts_log.json`
@@ -235,7 +253,8 @@ Anything replacing `dashboard.html` has to carry all of this. Grouped by priorit
 2. **Live game cards** — matchup, score with the leading side visually dominant, inning + half, ball-strike-out count.
 3. **Urgency flag** — games with `urgency: true` must be unmistakable and sorted to the top.
 4. **Run-line ladder per side** — the actual bet. Filter as described in §5.
-5. **Bullpen order per team** — name, IP, pitch count, current pitcher marked. This is the leading indicator that a position player is coming.
+5. **Bullpen order per team** — name plus the full outing line (IP, pitches, strike %, H, R, ER, BB, K), season ERA, decision, current pitcher marked, position players marked louder still. This is the leading indicator that a position player is coming. The stat line is what turns a list of names into a readable story about *why* the manager keeps going back to the pen, and it is free — see §5, it rides along in the boxscore already fetched each poll.
+   - **Colour convention: red is damage the pitcher allowed, green is damage he avoided.** Reading straight down the trailing team's column, a wall of red is the bullpen coming apart — the exact state a position player emerges from. Keep header and stat rows on one shared grid template so the digits line up as true columns; the reading-down scan is the whole point. A position-player row outranks the amber "now" treatment and goes red.
 6. **Alert history** — tier, teams, score, run diff, the player who pitched, and the line captured at alert time.
 7. **Freshness** — `last_checked` age. Stale data on a betting dashboard is worse than no data.
 

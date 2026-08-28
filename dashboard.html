@@ -223,6 +223,49 @@
   .brow.cur .nm::after { content: " \25CF"; color: var(--green); font-size: 9px; }
   .nodata { font-size: 12px; color: var(--muted-2); font-style: italic; padding: 6px 0; }
 
+  /* ---------- Pitcher stat column ---------- */
+  /* Every row -- header included -- shares one template so the digits form
+     true columns you can read straight down. */
+  .pgrid { display: grid; grid-template-columns: 34px 30px 34px 1fr 1fr 1fr 1fr 1fr;
+    gap: 6px; font-family: var(--mono); font-size: 11.5px; align-items: baseline; }
+  .phead { color: var(--muted-2); font-size: 9px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase; padding-bottom: 6px; margin-bottom: 2px;
+    border-bottom: 1px solid var(--border); }
+  .phead > span, .pstats > span { text-align: right; }
+  .phead > span:first-child, .pstats > span:first-child { text-align: left; }
+  .parm { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .parm:last-child { border-bottom: 0; }
+  .parm.cur { background: linear-gradient(90deg, rgba(251,191,36,0.07), transparent 70%);
+    box-shadow: inset 2px 0 0 var(--amber); padding-left: 7px; margin-left: -7px; }
+  .parm.pp { background: linear-gradient(90deg, rgba(239,68,68,0.14), transparent 75%);
+    box-shadow: inset 2px 0 0 var(--red); padding-left: 7px; margin-left: -7px; }
+  .pname { display: flex; align-items: baseline; gap: 7px; margin-bottom: 5px; min-width: 0; }
+  .pname .ix { font-family: var(--mono); font-size: 9px; color: var(--muted-2);
+    flex: none; width: 18px; letter-spacing: .06em; }
+  .pname .nm { font-size: 12.5px; font-weight: 600; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .parm.cur .pname .nm { color: var(--text); }
+  .parm.pp .pname .nm { color: var(--red); font-weight: 800; }
+  .pname .era { font-family: var(--mono); font-size: 10px; color: var(--muted-2);
+    margin-left: auto; flex: none; }
+  .pname .dec { font-family: var(--mono); font-size: 9.5px; color: var(--amber); flex: none; }
+  .ptag { font-size: 8.5px; font-weight: 800; letter-spacing: .1em; padding: 2px 5px;
+    border-radius: 3px; flex: none; text-transform: uppercase; }
+  .ptag.now { color: var(--amber); background: rgba(251,191,36,0.13); }
+  .ptag.pos { color: #fff; background: var(--red); }
+  .pstats { color: var(--muted); font-variant-numeric: tabular-nums; }
+  /* Scoped to the row, not the stat grid, so the season-ERA chip in the name
+     line picks up the same tones as the outing numbers below it. */
+  .parm .g { color: var(--green); }
+  .parm .r { color: var(--red); }
+  .parm .a { color: var(--amber); }
+  .parm .d { color: var(--muted-2); }
+  .pstats .r { font-weight: 700; }
+  .ptot { display: flex; justify-content: space-between; gap: 8px; padding-top: 9px;
+    margin-top: 3px; border-top: 1px solid var(--border-strong);
+    font-family: var(--mono); font-size: 10px; color: var(--muted-2); }
+  .ptot b { color: var(--muted); font-weight: 700; }
+
   /* ---------- Alerts ---------- */
   .alert {
     padding: 13px 16px; border-bottom: 1px solid var(--border);
@@ -521,6 +564,32 @@
   .m-arm .pc { width:44px; text-align:right; font-size:12px; color:var(--n-tx2); flex:none; }
   .m-arm .nw { width:26px; text-align:right; font-size:9px; letter-spacing:.09em; color:var(--n-ac300); flex:none; }
 
+  /* Mobile pitcher line -- same red/green convention as desktop */
+  .m-parm { padding:11px 18px; border-top:1px solid var(--n-bd); }
+  .m-parm.now { background:var(--n-raised); box-shadow:inset 2px 0 0 var(--n-warn); }
+  .m-parm.pp { background:color-mix(in oklch, var(--n-bad) 16%, transparent);
+    box-shadow:inset 2px 0 0 var(--n-bad); }
+  .m-parm .hd { display:flex; align-items:baseline; gap:8px; min-width:0; }
+  .m-parm .hd .ix { font-size:9.5px; color:var(--n-tx5); width:17px; flex:none; }
+  .m-parm .hd .n { font-size:13.5px; color:var(--n-tx2); flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-parm.now .hd .n { color:var(--n-tx); }
+  .m-parm.pp .hd .n { color:var(--n-bad); font-weight:700; }
+  .m-parm .hd .er { font-size:10px; color:var(--n-tx5); flex:none; }
+  .m-ptag { font-size:8.5px; font-weight:700; letter-spacing:.1em; padding:2px 5px;
+    border-radius:3px; flex:none; text-transform:uppercase; }
+  .m-ptag.now { color:var(--n-warn); background:color-mix(in oklch, var(--n-warn) 15%, transparent); }
+  .m-ptag.pos { color:#fff; background:var(--n-bad); }
+  .m-pline { display:grid; grid-template-columns:repeat(8, 1fr); gap:4px; margin-top:8px; }
+  .m-pline .c { text-align:center; }
+  .m-pline .c .k { font-size:8px; letter-spacing:.08em; color:var(--n-tx5); text-transform:uppercase; }
+  .m-pline .c .v { font-size:12.5px; margin-top:3px; color:var(--n-tx2);
+    font-variant-numeric:tabular-nums; }
+  .m-pline .c .v.g { color:var(--n-good); }
+  .m-pline .c .v.r { color:var(--n-bad); font-weight:700; }
+  .m-pline .c .v.a { color:var(--n-warn); }
+  .m-pline .c .v.d { color:var(--n-tx5); }
+
   /* Ladder */
   .m-lad { padding:12px 18px; border-top:1px solid var(--n-bd); display:flex; gap:12px; align-items:center; }
   .m-lad.best { background:var(--n-raised); }
@@ -729,6 +798,33 @@ function trailing(g) {
   return h === a ? null : (h > a ? 'away' : 'home');
 }
 function pen(g, side) { return (side === 'home' ? g.home_bullpen : g.away_bullpen) || []; }
+// ---- Pitcher stat colouring -------------------------------------------------
+// One convention everywhere: RED is damage the pitcher allowed, GREEN is damage
+// he avoided. Reading down the trailing team's column, a wall of red is the
+// bullpen being shredded -- the state a position player emerges from.
+function statTone(key, v, isStarter) {
+  const n = Number(v);
+  if (v == null || v === '' || isNaN(n)) return 'd';
+  switch (key) {
+    case 'h':  return n === 0 ? 'g' : (n >= 3 ? 'r' : '');
+    case 'r':
+    case 'er': return n === 0 ? 'g' : (n >= 3 ? 'r' : 'a');
+    case 'bb': return n === 0 ? 'g' : (n >= 3 ? 'r' : 'a');
+    case 'k':  return n >= 3 ? 'g' : (n === 0 ? 'd' : '');
+    case 'hr': return n === 0 ? '' : 'r';
+    case 'sp': return n >= 60 ? 'g' : (n >= 50 ? 'a' : 'r');
+    // A gassed arm is the tell that the next change is coming.
+    case 'p':  return isStarter ? (n >= 105 ? 'r' : (n >= 90 ? 'a' : ''))
+                                : (n >= 45 ? 'r' : (n >= 30 ? 'a' : ''));
+    case 'era': return n <= 3 ? 'g' : (n >= 5 ? 'r' : '');
+    default: return '';
+  }
+}
+function sv(key, v, isStarter, suffix) {
+  const t = statTone(key, v, isStarter);
+  const txt = (v == null) ? '\u2014' : esc(String(v)) + (suffix || '');
+  return '<span class="' + t + '">' + txt + '</span>';
+}
 function relievers(g, side) { return Math.max(0, pen(g, side).length - 1); }
 function trailRelievers(g) { const t = trailing(g); return t ? relievers(g, t) : 0; }
 function inningTxt(g) {
@@ -919,19 +1015,44 @@ function tabLadder(g) {
   return '<div class="duo">' + mk('away') + mk('home') + '</div>';
 }
 function tabBullpen(g) {
+  const HEAD = ['IP', 'P', 'S%', 'H', 'R', 'ER', 'BB', 'K'];
   const mk = side => {
     const p = pen(g, side);
+    const sum = k => p.reduce((a, x) => a + (x[k] || 0), 0);
     return '<div><div class="colhead"><span>' + esc(g[side + '_team']) + '</span>'
-      + '<span class="tiny">' + p.length + ' used · ' + relievers(g, side) + ' rel</span></div>'
-      + (p.length ? p.map((x, i) => {
-          const st = [];
-          if (x.innings_pitched != null) st.push(x.innings_pitched + ' IP');
-          if (x.pitches != null) st.push(x.pitches + 'p');
-          return '<div class="brow' + (x.is_current ? ' cur' : '') + '">'
-            + '<span class="i">' + (i + 1) + '</span>'
-            + '<span class="nm">' + esc(x.name) + '</span>'
-            + '<span class="st">' + esc(st.join(' · ') || '—') + '</span></div>';
-        }).join('') : '<div class="nodata">No pitchers logged yet.</div>')
+      + '<span class="tiny">' + p.length + ' used \u00b7 ' + relievers(g, side) + ' rel</span></div>'
+      + (p.length
+        ? '<div class="pgrid phead">' + HEAD.map(h => '<span>' + h + '</span>').join('') + '</div>'
+          + p.map((x, i) => {
+              const st = x.is_starter;
+              return '<div class="parm' + (x.is_position_player ? ' pp' : (x.is_current ? ' cur' : '')) + '">'
+                + '<div class="pname">'
+                +   '<span class="ix">' + (st ? 'SP' : i) + '</span>'
+                +   '<span class="nm">' + esc(x.name) + '</span>'
+                +   (x.is_position_player
+                      ? '<span class="ptag pos">' + esc(x.position || 'POS') + '</span>'
+                      : (x.is_current ? '<span class="ptag now">now</span>' : ''))
+                +   (x.note ? '<span class="dec">' + esc(x.note) + '</span>' : '')
+                +   (x.era != null
+                        ? '<span class="era">ERA <span class="' + statTone('era', x.era)
+                            + '">' + esc(x.era) + '</span></span>'
+                        : '')
+                + '</div>'
+                + '<div class="pgrid pstats">'
+                +   '<span>' + esc(x.innings_pitched != null ? x.innings_pitched : '\u2014') + '</span>'
+                +   sv('p', x.pitches, st)
+                +   sv('sp', x.strike_pct, st, '%')
+                +   sv('h', x.hits, st)
+                +   sv('r', x.runs, st)
+                +   sv('er', x.earned_runs, st)
+                +   sv('bb', x.walks, st)
+                +   sv('k', x.strikeouts, st)
+                + '</div></div>';
+            }).join('')
+          + '<div class="ptot"><span><b>' + sum('pitches') + '</b> pitches</span>'
+          + '<span><b>' + sum('hits') + '</b> H \u00b7 <b>' + sum('runs') + '</b> R \u00b7 <b>'
+          + sum('strikeouts') + '</b> K</span></div>'
+        : '<div class="nodata">No pitchers logged yet.</div>')
       + '</div>';
   };
   return '<div class="duo">' + mk('away') + mk('home') + '</div>';
@@ -1634,21 +1755,44 @@ function gPitching(g) {
 }
 function gBullpen(g) {
   const t = trailing(g);
-  return '<div class="m-intro" style="padding-top:14px">Chronological, starter first. The leading indicator that a position player is coming.</div>'
+  const CELLS = [
+    ['IP', x => [null, x.innings_pitched]],
+    ['P',  x => ['p',  x.pitches]],
+    ['S%', x => ['sp', x.strike_pct, '%']],
+    ['H',  x => ['h',  x.hits]],
+    ['R',  x => ['r',  x.runs]],
+    ['ER', x => ['er', x.earned_runs]],
+    ['BB', x => ['bb', x.walks]],
+    ['K',  x => ['k',  x.strikeouts]],
+  ];
+  return '<div class="m-intro" style="padding-top:14px">Chronological, starter first. '
+    + 'Red is damage allowed \u2014 a column filling with red is a bullpen coming apart.</div>'
     + ['away', 'home'].map(side => {
       const p = pen(g, side);
-      const pitches = p.reduce((s, x) => s + (x.pitches || 0), 0);
+      const sum = k => p.reduce((a, x) => a + (x[k] || 0), 0);
       return '<div style="margin-top:16px"><div class="m-seclabel">'
         + '<span class="m-tl' + (t === side ? ' conceding' : '') + '">' + esc(String(g[side + '_team']).toUpperCase()) + '</span>'
-        + '<span class="rt">' + Math.max(0, p.length - 1) + ' relievers &middot; ' + pitches + ' pitches</span></div>'
-        + (p.length ? p.map((x, i) => '<div class="m-arm' + (x.is_current ? ' now' : '') + '">'
-            + '<span class="ix">' + (i === 0 ? 'SP' : i) + '</span>'
-            + '<span class="who"><div class="n">' + esc(x.name) + '</div>'
-            +   '<div class="r">' + (i === 0 ? 'Starter' : 'Reliever') + '</div></span>'
-            + '<span class="ip">' + esc(x.innings_pitched ?? '—') + '</span>'
-            + '<span class="pc">' + esc(x.pitches ?? '—') + '</span>'
-            + '<span class="nw">' + (x.is_current ? 'NOW' : '') + '</span></div>').join('')
-          : '<div class="m-empty"><div class="a">No pitchers logged yet.</div></div>')
+        + '<span class="rt">' + Math.max(0, p.length - 1) + ' relievers &middot; ' + sum('pitches') + ' pitches</span></div>'
+        + (p.length ? p.map((x, i) => {
+            const st = x.is_starter;
+            return '<div class="m-parm' + (x.is_position_player ? ' pp' : (x.is_current ? ' now' : '')) + '">'
+              + '<div class="hd"><span class="ix">' + (st ? 'SP' : i) + '</span>'
+              +   '<span class="n">' + esc(x.name) + '</span>'
+              +   (x.is_position_player
+                    ? '<span class="m-ptag pos">' + esc(x.position || 'POS') + '</span>'
+                    : (x.is_current ? '<span class="m-ptag now">now</span>' : ''))
+              +   (x.era != null ? '<span class="er">ERA ' + esc(x.era) + '</span>' : '')
+              + '</div><div class="m-pline">'
+              + CELLS.map(c => {
+                  const spec = c[1](x), key = spec[0], v = spec[1], sfx = spec[2] || '';
+                  const cls = key ? statTone(key, v, st) : '';
+                  return '<div class="c"><div class="k">' + c[0] + '</div>'
+                    + '<div class="v ' + cls + '">'
+                    + (v == null ? '\u2014' : esc(String(v)) + sfx) + '</div></div>';
+                }).join('')
+              + '</div></div>';
+          }).join('')
+        : '<div class="m-empty"><div class="a">No pitchers logged yet.</div></div>')
         + '</div>';
     }).join('');
 }

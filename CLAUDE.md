@@ -107,7 +107,7 @@ Three things the scheduler has to get right, all of which bit us:
   through the actual 8pm games.
 
 **Architecture:**
-- `mlb_api.py` — wraps the free MLB Stats API (statsapi.mlb.com, no key required): live game lookup, boxscore fetch, and the core detection logic (a player who appears in a team's `pitchers` list but whose real position isn't "P"/"TWP" is a position player pitching).
+- `mlb_api.py` — wraps the free MLB Stats API (statsapi.mlb.com, no key required): live game lookup, boxscore fetch, and the core detection logic (a player who appears in a team's `pitchers` list but whose real position isn't "P"/"TWP" is a position player pitching). `get_bullpen_detail()` returns each arm's full outing line — IP, pitches, strikes/balls and a computed strike %, H, R, ER, BB, K, HR, batters faced, outs — plus season ERA, MLB's decision string, and `is_starter` / `is_current` / `is_position_player` flags. **All of it is pulled out of the boxscore response the bot already fetches on every poll, so the fuller line costs zero extra API requests and cannot affect polling frequency.** Never add a separate fetch to enrich a pitcher row; if a stat isn't in the boxscore, it doesn't go on the dashboard.
 - `schedule.py` — the day/season schedule. `today_et()`, `get_day_games(date)`,
   `compute_window(date)` (first pitch, last start, backstop, all-Final state),
   and `fetch_season()` which pulls the remaining season in one ranged request
@@ -125,7 +125,7 @@ Three things the scheduler has to get right, all of which bit us:
 - `alert_log.py` — appends fired alerts (with odds attached) to `alerts_log.json` (capped at 500), read by `dashboard.html`.
 - `paths.py` — shared data-file location. Defaults to the project folder; set `DATA_DIR` (e.g. a Railway Volume mount) so state/alerts/odds survive redeploys.
 - `app.py` — Flask entrypoint for deployment: runs the polling loop in a background thread, serves `dashboard.html` plus `status.json` / `alerts_log.json` / `odds_snapshot.json`.
-- `dashboard.html` — static HTML/JS dashboard (live game odds grid + alert history), same visual pattern as `Claude-Test/`. Auto-refreshes every 15s.
+- `dashboard.html` — static HTML/JS dashboard (live game odds grid + bullpens + alert history), same visual pattern as `Claude-Test/`. Auto-refreshes every 15s. The Bullpens tab (desktop `tabBullpen`, mobile `gBullpen`) lists each team's arms chronologically with the full per-pitcher stat line, and both views share the `statTone()` / `sv()` helpers so the colouring is identical. **The colour convention is deliberate: red is damage the pitcher allowed, green is damage he avoided** — so reading down the trailing team's column, a wall of red is the bullpen coming apart, which is the state a position player emerges from. A position-player row is tinted red and tagged with its real position, outranking the amber "now" marker on the current pitcher. Don't invert the scale or retune the thresholds without a reason; the scan-down read is the point.
 
 **Deployment:** Deployed to Railway from `https://github.com/nickwells21/MLB-Blowout-Bot`, connected via GitHub auto-deploy. Env vars set in Railway match `.env.example`; `DATA_DIR` points at a mounted Volume for persistence.
 

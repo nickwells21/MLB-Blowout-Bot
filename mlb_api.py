@@ -293,9 +293,12 @@ def get_bullpen_detail(boxscore, side):
         if not player:
             continue
         pitching = player.get("stats", {}).get("pitching", {}) or {}
+        season = player.get("seasonStats", {}).get("pitching", {}) or {}
         primary = roster_pos.get(player["person"]["id"]) or {}
         box_abbr = player.get("position", {}).get("abbreviation")
         real_abbr = primary.get("abbreviation") or box_abbr
+        strikes = pitching.get("strikes")
+        pitches = pitching.get("numberOfPitches")
         detail.append(
             {
                 "player_id": pid,
@@ -305,7 +308,26 @@ def get_bullpen_detail(boxscore, side):
                 "position": real_abbr,
                 "is_position_player": real_abbr not in ("P", "TWP") if real_abbr else False,
                 "innings_pitched": pitching.get("inningsPitched"),
-                "pitches": pitching.get("numberOfPitches"),
+                "pitches": pitches,
+                # --- this outing's line. Every field below already rides along
+                # in the boxscore we fetch each poll, so the fuller line costs
+                # no extra request and cannot affect polling frequency. ---
+                "strikes": strikes,
+                "balls": pitching.get("balls"),
+                "strike_pct": round(100 * strikes / pitches) if pitches else None,
+                "hits": pitching.get("hits"),
+                "runs": pitching.get("runs"),
+                "earned_runs": pitching.get("earnedRuns"),
+                "walks": pitching.get("baseOnBalls"),
+                "strikeouts": pitching.get("strikeOuts"),
+                "home_runs": pitching.get("homeRuns"),
+                "batters_faced": pitching.get("battersFaced"),
+                "outs": pitching.get("outs"),
+                # Season ERA for context on whether this arm is a soft spot.
+                "era": season.get("era"),
+                # MLB's own decision string, e.g. "(W, 9-2)" / "(H, 12)".
+                "note": pitching.get("note"),
+                "is_starter": idx == 0,
                 "is_current": idx == len(pitcher_ids) - 1,
             }
         )
