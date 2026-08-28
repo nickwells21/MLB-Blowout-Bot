@@ -266,6 +266,82 @@
     font-family: var(--mono); font-size: 10px; color: var(--muted-2); }
   .ptot b { color: var(--muted); font-weight: 700; }
 
+  /* ---------- Arm Ledger ---------- */
+  /* Every pitcher either side has used, chronological, trailing team first.
+     Colour convention is load-bearing: red is damage allowed, green is damage
+     avoided, amber is strain. Read straight down the trailing column and a
+     wall of red is the pen coming apart. */
+  .lg-legend {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    padding: 9px 14px; border-bottom: 1px solid var(--border);
+    background: var(--panel); font-size: 10.5px; color: var(--muted-2);
+  }
+  .lg-legend .k { display: flex; align-items: center; gap: 6px; }
+  .lg-legend .sw { width: 8px; height: 8px; border-radius: 2px; }
+  .lg-legend .hint { margin-left: auto; color: var(--muted); }
+  .lg-team { border-bottom: 1px solid var(--border); padding: 14px 16px 16px; }
+  .lg-team:last-of-type { border-bottom: 0; }
+  .lg-id { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .lg-logo { position: relative; width: 34px; height: 34px; flex: none;
+    display: flex; align-items: center; justify-content: center; }
+  .lg-logo::before { content: ""; position: absolute; inset: -9px; border-radius: 50%;
+    background: radial-gradient(circle, var(--tc) 0%, transparent 70%);
+    opacity: .85; filter: blur(9px); }
+  .lg-logo img { position: relative; width: 30px; height: 30px; object-fit: contain; }
+  .lg-nm { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+  .lg-nm .n { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+  .lg-nm .rec { font-family: var(--mono); font-size: 11px; color: var(--muted-2); }
+  .lg-role { font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; margin-top: 3px; }
+  .lg-chips { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lg-chip { font-family: var(--mono); font-size: 10px; font-weight: 700;
+    padding: 3px 7px; border-radius: 4px; white-space: nowrap; border: 1px solid; }
+  .lg-chip.neutral { background: var(--panel-3); color: var(--muted-2); border-color: var(--border); }
+  .lg-chip.warn { background: rgba(251,191,36,.14); color: var(--amber); border-color: rgba(251,191,36,.32); }
+  .lg-chip.bad  { background: rgba(239,68,68,.14); color: var(--red); border-color: rgba(239,68,68,.32); }
+  .lg-chip.good { background: rgba(34,197,94,.14); color: var(--green); border-color: rgba(34,197,94,.35); }
+  .lg-chip.solid { background: var(--red); color: #fff; border-color: var(--red); }
+  /* 13 columns do not fit a narrow window; scroll the table, never the page. */
+  .lg-scroll { overflow-x: auto; overflow-y: hidden; }
+  .lg-min { min-width: 860px; }
+  .lg-row { display: flex; gap: 10px; align-items: baseline; }
+  .lg-row .who { flex: none; width: 212px; display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .lg-row .cells { flex: 1; min-width: 0; display: grid; gap: 6px;
+    font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .lg-row .cells > span { text-align: right; }
+  .lg-hdr { padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted-2); }
+  .lg-hdr .cells { font-family: var(--mono); font-size: 9px; }
+  .lg-arm { padding: 8px 0; border-bottom: 1px solid var(--border);
+    box-shadow: inset 3px 0 0 transparent; }
+  .lg-arm .ix { font-family: var(--mono); font-size: 9px; color: var(--muted-2);
+    flex: none; width: 16px; letter-spacing: .06em; }
+  .lg-arm .nm { font-size: 12.5px; font-weight: 600; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg-arm .era { margin-left: auto; flex: none; font-family: var(--mono);
+    font-size: 10px; color: var(--muted-2); }
+  .lg-arm.now { background: linear-gradient(90deg, rgba(251,191,36,0.07), transparent 70%);
+    box-shadow: inset 3px 0 0 var(--amber); padding-left: 9px; margin-left: -9px; }
+  .lg-arm.now .nm { color: var(--text); }
+  .lg-arm.pp { background: linear-gradient(90deg, rgba(239,68,68,0.16), transparent 72%);
+    box-shadow: inset 3px 0 0 var(--red); padding-left: 9px; margin-left: -9px; }
+  .lg-arm.pp .nm { color: var(--red); font-weight: 800; }
+  .lg-tag { flex: none; font-size: 9px; font-weight: 800; letter-spacing: .1em;
+    padding: 2px 6px; border-radius: 3px; }
+  .lg-tag.pos { background: var(--red); color: #fff; }
+  .lg-tag.now { background: rgba(251,191,36,0.13); color: var(--amber); }
+  .lg-tot { display: flex; justify-content: space-between; gap: 10px;
+    padding-top: 9px; margin-top: 4px; border-top: 1px solid var(--border-strong);
+    font-family: var(--mono); font-size: 10px; color: var(--muted-2); }
+  .lg-foot { padding: 11px 16px; background: var(--panel);
+    font-size: 11px; color: var(--muted-2); font-family: var(--mono); }
+  .lg-g { color: var(--green); }
+  .lg-r { color: var(--red); }
+  .lg-a { color: var(--amber); }
+  .lg-m { color: var(--muted); }
+  .lg-m2 { color: var(--muted-2); }
+
   /* ---------- Alerts ---------- */
   .alert {
     padding: 13px 16px; border-bottom: 1px solid var(--border);
@@ -590,6 +666,48 @@
   .m-pline .c .v.a { color:var(--n-warn); }
   .m-pline .c .v.d { color:var(--n-tx5); }
 
+  /* Mobile Arm Ledger cards */
+  .m-armc { padding:10px 11px; border-radius:8px; border:1px solid var(--n-bd);
+    background:var(--n-panel); margin-bottom:7px; }
+  .m-armc.now { border-color:color-mix(in oklch, var(--n-warn) 32%, transparent);
+    box-shadow:inset 3px 0 0 var(--n-warn); }
+  .m-armc.pp { border-color:color-mix(in oklch, var(--n-bad) 45%, transparent);
+    background:linear-gradient(90deg, color-mix(in oklch, var(--n-bad) 16%, transparent),
+      color-mix(in oklch, var(--n-bad) 3%, transparent));
+    box-shadow:inset 3px 0 0 var(--n-bad); }
+  .m-armc .hd { display:flex; align-items:baseline; gap:7px; min-width:0; }
+  .m-armc .hd .ix { font-family:ui-monospace,Menlo,monospace; font-size:9px;
+    color:var(--n-tx5); flex:none; }
+  .m-armc .hd .n { font-size:12.5px; font-weight:600; color:var(--n-tx2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-armc.now .hd .n { color:var(--n-tx); }
+  .m-armc.pp .hd .n { color:var(--n-bad); font-weight:800; }
+  .m-armc .hd .era { margin-left:auto; flex:none; font-family:ui-monospace,Menlo,monospace;
+    font-size:10px; color:var(--n-tx5); }
+  .m-armtag { flex:none; font-size:9px; font-weight:800; letter-spacing:.1em;
+    padding:2px 6px; border-radius:3px; }
+  .m-armtag.pos { background:var(--n-bad); color:#fff; }
+  .m-armtag.now { background:color-mix(in oklch, var(--n-warn) 15%, transparent);
+    color:var(--n-warn); }
+  .m-armg { display:grid; grid-template-columns:repeat(7,1fr); gap:7px 4px; margin-top:9px; }
+  .m-armg .k { font-size:8px; font-weight:800; letter-spacing:.06em; color:var(--n-tx5);
+    font-family:ui-monospace,Menlo,monospace; }
+  .m-armg .v { font-family:ui-monospace,Menlo,monospace; font-size:12px; margin-top:2px;
+    color:var(--n-tx2); font-variant-numeric:tabular-nums; }
+  .m-armg .v.lg-g { color:var(--n-good); }
+  .m-armg .v.lg-r { color:var(--n-bad); }
+  .m-armg .v.lg-a { color:var(--n-warn); }
+  .m-armg .v.lg-m { color:var(--n-tx3); }
+  .m-armg .v.lg-m2 { color:var(--n-tx5); }
+  /* Team header sticks while a long ledger scrolls under it. */
+  .m-armhd { display:flex; align-items:center; gap:9px; padding:8px 0 9px;
+    position:sticky; top:0; background:var(--n-bg); z-index:2; }
+  .m-armhd .s { font-size:12px; font-weight:700; color:var(--n-tx); }
+  .m-armhd .rl { font-size:9.5px; font-weight:800; letter-spacing:.08em;
+    text-transform:uppercase; }
+  .m-armhd .rt { margin-left:auto; font-family:ui-monospace,Menlo,monospace;
+    font-size:10px; color:var(--n-tx5); }
+
   /* Ladder */
   .m-lad { padding:12px 18px; border-top:1px solid var(--n-bd); display:flex; gap:12px; align-items:center; }
   .m-lad.best { background:var(--n-raised); }
@@ -734,6 +852,11 @@
       <div class="tabs" id="tabs"></div>
       <div id="tabbody"></div>
     </div>
+  </div>
+
+  <div class="section" id="ledger-wrap" hidden>
+    <div class="band"><span>Arm Ledger</span><span class="band-note" id="ledger-note"></span></div>
+    <div class="boxed" id="ledger"></div>
   </div>
 
   <div class="section">
@@ -955,7 +1078,8 @@ function renderSlate() {
 const TABS = [
   { id: 'odds', label: 'Game Odds' },
   { id: 'ladder', label: 'Run Line Ladder' },
-  { id: 'bullpen', label: 'Bullpens' },
+  // No Bullpens tab: the Arm Ledger below carries the same data in full and
+  // is always visible, rather than one click away.
   { id: 'state', label: 'Game State' },
 ];
 function selected() { return S.games.find(g => String(g.game_pk) === String(S.sel)) || null; }
@@ -1014,49 +1138,154 @@ function tabLadder(g) {
   };
   return '<div class="duo">' + mk('away') + mk('home') + '</div>';
 }
-function tabBullpen(g) {
-  const HEAD = ['IP', 'P', 'S%', 'H', 'R', 'ER', 'BB', 'K'];
-  const mk = side => {
-    const p = pen(g, side);
-    const sum = k => p.reduce((a, x) => a + (x[k] || 0), 0);
-    return '<div><div class="colhead"><span>' + esc(g[side + '_team']) + '</span>'
-      + '<span class="tiny">' + p.length + ' used \u00b7 ' + relievers(g, side) + ' rel</span></div>'
-      + (p.length
-        ? '<div class="pgrid phead">' + HEAD.map(h => '<span>' + h + '</span>').join('') + '</div>'
-          + p.map((x, i) => {
-              const st = x.is_starter;
-              return '<div class="parm' + (x.is_position_player ? ' pp' : (x.is_current ? ' cur' : '')) + '">'
-                + '<div class="pname">'
-                +   '<span class="ix">' + (st ? 'SP' : i) + '</span>'
-                +   '<span class="nm">' + esc(x.name) + '</span>'
-                +   (x.is_position_player
-                      ? '<span class="ptag pos">' + esc(x.position || 'POS') + '</span>'
-                      : (x.is_current ? '<span class="ptag now">now</span>' : ''))
-                +   (x.note ? '<span class="dec">' + esc(x.note) + '</span>' : '')
-                +   (x.era != null
-                        ? '<span class="era">ERA <span class="' + statTone('era', x.era)
-                            + '">' + esc(x.era) + '</span></span>'
-                        : '')
-                + '</div>'
-                + '<div class="pgrid pstats">'
-                +   '<span>' + esc(x.innings_pitched != null ? x.innings_pitched : '\u2014') + '</span>'
-                +   sv('p', x.pitches, st)
-                +   sv('sp', x.strike_pct, st, '%')
-                +   sv('h', x.hits, st)
-                +   sv('r', x.runs, st)
-                +   sv('er', x.earned_runs, st)
-                +   sv('bb', x.walks, st)
-                +   sv('k', x.strikeouts, st)
-                + '</div></div>';
-            }).join('')
-          + '<div class="ptot"><span><b>' + sum('pitches') + '</b> pitches</span>'
-          + '<span><b>' + sum('hits') + '</b> H \u00b7 <b>' + sum('runs') + '</b> R \u00b7 <b>'
-          + sum('strikeouts') + '</b> K</span></div>'
-        : '<div class="nodata">No pitchers logged yet.</div>')
-      + '</div>';
-  };
-  return '<div class="duo">' + mk('away') + mk('home') + '</div>';
+/* ---------- Arm Ledger ----------------------------------------------------
+   Every pitcher both sides have used, chronological, trailing team first.
+   Colour bands come straight from the design: red is damage allowed, green is
+   damage avoided (only ever earned, via strikeouts and a healthy strike rate),
+   amber is strain. `null` never colours -- an announced pitcher who has not
+   thrown yet is dim, not alarming. */
+const LG_HEADS = ['IP', 'OUTS', 'P', 'P/IP', 'S\u2013B', 'S%', 'BF', 'H', 'R', 'ER', 'BB', 'K', 'HR'];
+
+function lgBand(v, warn, bad, invert) {
+  if (v === null || v === undefined || isNaN(Number(v))) return { c: 'lg-m2', w: 400 };
+  const n = Number(v);
+  if (invert) {                                   // higher is better
+    if (n >= bad) return { c: 'lg-g', w: 700 };
+    if (n >= warn) return { c: 'lg-m', w: 500 };
+    return { c: 'lg-r', w: 700 };
+  }
+  if (n >= bad) return { c: 'lg-r', w: 700 };
+  if (n >= warn) return { c: 'lg-a', w: 600 };
+  return { c: 'lg-m2', w: 400 };
 }
+function lgNum(v) { return (v === null || v === undefined) ? '\u2014' : String(v); }
+
+/* Outs -> baseball notation. 20 outs is 6.2, not 6.7. */
+function ipFromOuts(outs) {
+  if (outs === null || outs === undefined) return '\u2014';
+  return Math.floor(outs / 3) + '.' + (outs % 3);
+}
+
+function lgCells(p) {
+  const outs = p.outs, pit = p.pitches;
+  // Pitches per inning: the clearest single read on whether an arm is labouring.
+  const pip = (outs > 0 && pit != null) ? (pit / (outs / 3)) : null;
+  const sb = (p.strikes != null && p.balls != null) ? p.strikes + '\u2013' + p.balls : '\u2014';
+  const flat = t => ({ c: t, w: 400 });
+  const all = {
+    'IP':   { v: p.innings_pitched != null ? p.innings_pitched : '\u2014', t: { c: 'lg-m', w: 600 } },
+    'OUTS': { v: lgNum(outs), t: flat('lg-m2') },
+    'P':    { v: lgNum(pit), t: lgBand(pit, 60, 80) },
+    'P/IP': { v: pip === null ? '\u2014' : pip.toFixed(1), t: lgBand(pip, 18, 25) },
+    'S\u2013B': { v: sb, t: flat('lg-m2') },
+    'S%':   { v: p.strike_pct == null ? '\u2014' : p.strike_pct + '%', t: lgBand(p.strike_pct, 55, 63, true) },
+    'BF':   { v: lgNum(p.batters_faced), t: flat('lg-m2') },
+    'H':    { v: lgNum(p.hits), t: lgBand(p.hits, 2, 5) },
+    'R':    { v: lgNum(p.runs), t: lgBand(p.runs, 1, 3) },
+    'ER':   { v: lgNum(p.earned_runs), t: lgBand(p.earned_runs, 1, 3) },
+    'BB':   { v: lgNum(p.walks), t: lgBand(p.walks, 1, 3) },
+    'K':    { v: lgNum(p.strikeouts), t: lgBand(p.strikeouts, 1, 3, true) },
+    'HR':   { v: lgNum(p.home_runs), t: lgBand(p.home_runs, 1, 2) },
+  };
+  return LG_HEADS.map(k => Object.assign({ k: k }, all[k]));
+}
+
+function lgChips(g, side, trailingSide) {
+  const p = pen(g, side), rel = Math.max(0, p.length - 1);
+  const crit = thr('bullpen_critical_count', 4);
+  const out = [];
+  if (side === trailingSide) {
+    const hot = rel >= crit;
+    out.push({ t: rel + ' RELIEVER' + (rel === 1 ? '' : 'S'), cls: hot ? 'bad' : 'warn' });
+    if (hot) out.push({ t: 'PEN CRITICAL', cls: 'bad' });
+    if (p.some(x => x.is_position_player)) out.push({ t: 'POSITION PLAYER', cls: 'solid' });
+  } else {
+    out.push({ t: rel + ' RELIEVER' + (rel === 1 ? '' : 'S'), cls: 'neutral' });
+    const l = lead(g);
+    if (l > 0) out.push({ t: 'LEAD +' + l, cls: 'good' });
+  }
+  return out;
+}
+
+function lgTeam(g, side, trailingSide) {
+  const p = pen(g, side);
+  const id = g[side + '_id'];
+  const isTrail = side === trailingSide;
+  const role = trailingSide === null ? 'Level'
+    : (isTrail ? 'Trailing \u00b7 conceded' : 'Leading');
+  const roleCls = trailingSide === null ? 'lg-m2' : (isTrail ? 'lg-r' : 'lg-g');
+  const sum = k => p.reduce((a, x) => a + (x[k] || 0), 0);
+
+  const hdr = '<div class="lg-row lg-hdr"><div class="who">Pitcher</div>'
+    + '<div class="cells" style="grid-template-columns:repeat(' + LG_HEADS.length + ',1fr)">'
+    + LG_HEADS.map(h => '<span>' + esc(h) + '</span>').join('')
+    + '</div></div>';
+
+  const arms = p.map((x, i) => {
+    const cls = x.is_position_player ? ' pp' : (x.is_current ? ' now' : '');
+    const tag = x.is_position_player
+      ? '<span class="lg-tag pos">' + esc(x.position || 'POS') + '</span>'
+      : (x.is_current ? '<span class="lg-tag now">NOW</span>' : '');
+    return '<div class="lg-row lg-arm' + cls + '">'
+      + '<div class="who"><span class="ix">' + (x.is_starter ? 'SP' : 'R' + i) + '</span>'
+      +   '<span class="nm">' + esc(x.name) + '</span>' + tag
+      +   '<span class="era">' + (x.era != null ? esc(x.era) : '\u2014') + '</span></div>'
+      + '<div class="cells" style="grid-template-columns:repeat(' + LG_HEADS.length + ',1fr)">'
+      +   lgCells(x).map(c => '<span class="' + c.t.c + '" style="font-weight:' + c.t.w + '">'
+            + esc(c.v) + '</span>').join('')
+      + '</div></div>';
+  }).join('');
+
+  return '<div class="lg-team">'
+    + '<div class="lg-id">'
+    +   '<span class="lg-logo" style="--tc:' + teamColor(id) + '">'
+    +     (id ? '<img alt="" loading="lazy" src="https://www.mlbstatic.com/team-logos/'
+              + encodeURIComponent(id) + '.svg" onerror="this.style.visibility=\'hidden\'">' : '')
+    +   '</span>'
+    +   '<span><span class="lg-nm"><span class="n">' + esc(g[side + '_team'] || '') + '</span>'
+    +     '<span class="rec">' + esc(g[side + '_record'] || '') + '</span></span>'
+    +     '<span class="lg-role ' + roleCls + '" style="display:block">' + esc(role) + '</span></span>'
+    +   '<span class="lg-chips">'
+    +     lgChips(g, side, trailingSide).map(c =>
+            '<span class="lg-chip ' + c.cls + '">' + esc(c.t) + '</span>').join('')
+    +   '</span>'
+    + '</div>'
+    + '<div class="lg-scroll"><div class="lg-min">' + hdr + arms
+    +   '<div class="lg-tot"><span>' + p.length + ' arm' + (p.length === 1 ? '' : 's')
+    +     ' \u00b7 ' + ipFromOuts(sum('outs')) + ' IP \u00b7 ' + sum('pitches') + ' pitches</span>'
+    +     '<span>' + sum('runs') + ' R allowed</span></div>'
+    + '</div></div></div>';
+}
+
+function renderLedger() {
+  const wrap = document.getElementById('ledger-wrap');
+  const g = selected();
+  const has = g && (pen(g, 'away').length || pen(g, 'home').length);
+  if (!has) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+
+  const t = trailing(g);
+  // Trailing team first: it is the one whose pen is being emptied, and the
+  // only one a position player can come out of.
+  const order = t === 'home' ? ['home', 'away'] : ['away', 'home'];
+
+  document.getElementById('ledger-note').textContent =
+    t ? 'Trailing team first \u00b7 chronological, starter to current'
+      : 'Tied \u00b7 chronological, starter to current';
+
+  document.getElementById('ledger').innerHTML =
+    '<div class="lg-legend">'
+    + '<span class="k"><span class="sw" style="background:var(--red)"></span>damage allowed</span>'
+    + '<span class="k"><span class="sw" style="background:var(--green)"></span>damage avoided</span>'
+    + '<span class="k"><span class="sw" style="background:var(--amber)"></span>strain</span>'
+    + '<span class="hint">Read straight down the trailing team\u2019s column. '
+    +   'A wall of red is the pen coming apart.</span>'
+    + '</div>'
+    + order.map(side => lgTeam(g, side, t)).join('')
+    + '<div class="lg-foot">IP in baseball notation \u00b7 S% blank until first pitch '
+    +   'thrown \u00b7 ERA is season</div>';
+}
+
 function tabState(g) {
   const a = g.away_runs ?? 0, h = g.home_runs ?? 0, l = lead(g), t = trailing(g);
   const ar = relievers(g, 'away'), hr = relievers(g, 'home');
@@ -1082,7 +1311,11 @@ function tabState(g) {
 function renderDetail() {
   const wrap = document.getElementById('detail-wrap');
   const g = selected();
-  if (!g) { wrap.hidden = true; return; }
+  if (!g) {
+    wrap.hidden = true;
+    document.getElementById('ledger-wrap').hidden = true;
+    return;
+  }
   wrap.hidden = false;
 
   const a = g.away_runs ?? 0, h = g.home_runs ?? 0;
@@ -1110,10 +1343,11 @@ function renderDetail() {
     b.onclick = () => { S.tab = b.dataset.t; renderDetail(); };
   });
 
+  renderLedger();
+
   const body = document.getElementById('tabbody');
   if (S.tab === 'odds') body.innerHTML = tabOdds(g);
   else if (S.tab === 'ladder') body.innerHTML = tabLadder(g);
-  else if (S.tab === 'bullpen') body.innerHTML = tabBullpen(g);
   else body.innerHTML = tabState(g);
 }
 
@@ -1635,7 +1869,7 @@ function screenLive() {
 /* --- Screen: Game detail --- */
 const M_TABS = [
   ['overview', 'Overview'], ['botread', 'Bot read'], ['pitching', 'Pitching'],
-  ['bullpen', 'Bullpen'], ['ladder', 'Ladder'],
+  ['bullpen', 'Arms'], ['ladder', 'Ladder'],
 ];
 function mGame() { return S.games.find(g => String(g.game_pk) === String(M.gameId)) || null; }
 function screenGame() {
@@ -1755,46 +1989,42 @@ function gPitching(g) {
 }
 function gBullpen(g) {
   const t = trailing(g);
-  const CELLS = [
-    ['IP', x => [null, x.innings_pitched]],
-    ['P',  x => ['p',  x.pitches]],
-    ['S%', x => ['sp', x.strike_pct, '%']],
-    ['H',  x => ['h',  x.hits]],
-    ['R',  x => ['r',  x.runs]],
-    ['ER', x => ['er', x.earned_runs]],
-    ['BB', x => ['bb', x.walks]],
-    ['K',  x => ['k',  x.strikeouts]],
-  ];
-  return '<div class="m-intro" style="padding-top:14px">Chronological, starter first. '
-    + 'Red is damage allowed \u2014 a column filling with red is a bullpen coming apart.</div>'
-    + ['away', 'home'].map(side => {
+  const order = t === 'home' ? ['home', 'away'] : ['away', 'home'];
+  return '<div class="m-intro" style="padding-top:14px">Chronological, starter first, '
+    + 'trailing team on top. Red is damage allowed \u2014 a column filling with red '
+    + 'is a pen coming apart.</div>'
+    + order.map(side => {
       const p = pen(g, side);
       const sum = k => p.reduce((a, x) => a + (x[k] || 0), 0);
-      return '<div style="margin-top:16px"><div class="m-seclabel">'
-        + '<span class="m-tl' + (t === side ? ' conceding' : '') + '">' + esc(String(g[side + '_team']).toUpperCase()) + '</span>'
-        + '<span class="rt">' + Math.max(0, p.length - 1) + ' relievers &middot; ' + sum('pitches') + ' pitches</span></div>'
+      const isTrail = side === t;
+      const role = t === null ? 'Level' : (isTrail ? 'Conceding' : 'Leading');
+      const roleCls = t === null ? 'lg-m2' : (isTrail ? 'lg-r' : 'lg-g');
+      return '<div style="margin-top:14px">'
+        + '<div class="m-armhd">' + logoImg(g[side + '_id'])
+        +   '<span class="s">' + esc(nick(g[side + '_team'])) + '</span>'
+        +   '<span class="rl ' + roleCls + '">' + esc(role) + '</span>'
+        +   '<span class="rt">' + sum('runs') + ' R allowed</span></div>'
         + (p.length ? p.map((x, i) => {
-            const st = x.is_starter;
-            return '<div class="m-parm' + (x.is_position_player ? ' pp' : (x.is_current ? ' now' : '')) + '">'
-              + '<div class="hd"><span class="ix">' + (st ? 'SP' : i) + '</span>'
-              +   '<span class="n">' + esc(x.name) + '</span>'
-              +   (x.is_position_player
-                    ? '<span class="m-ptag pos">' + esc(x.position || 'POS') + '</span>'
-                    : (x.is_current ? '<span class="m-ptag now">now</span>' : ''))
-              +   (x.era != null ? '<span class="er">ERA ' + esc(x.era) + '</span>' : '')
-              + '</div><div class="m-pline">'
-              + CELLS.map(c => {
-                  const spec = c[1](x), key = spec[0], v = spec[1], sfx = spec[2] || '';
-                  const cls = key ? statTone(key, v, st) : '';
-                  return '<div class="c"><div class="k">' + c[0] + '</div>'
-                    + '<div class="v ' + cls + '">'
-                    + (v == null ? '\u2014' : esc(String(v)) + sfx) + '</div></div>';
-                }).join('')
+            const cls = x.is_position_player ? ' pp' : (x.is_current ? ' now' : '');
+            const tag = x.is_position_player
+              ? '<span class="m-armtag pos">' + esc(x.position || 'POS') + '</span>'
+              : (x.is_current ? '<span class="m-armtag now">NOW</span>' : '');
+            return '<div class="m-armc' + cls + '">'
+              + '<div class="hd"><span class="ix">' + (x.is_starter ? 'SP' : 'R' + i) + '</span>'
+              +   '<span class="n">' + esc(x.name) + '</span>' + tag
+              +   '<span class="era">' + (x.era != null ? esc(x.era) : '\u2014') + '</span></div>'
+              + '<div class="m-armg">'
+              +   lgCells(x).map(c => '<div><div class="k">' + esc(c.k) + '</div>'
+                    + '<div class="v ' + c.t.c + '" style="font-weight:' + c.t.w + '">'
+                    + esc(c.v) + '</div></div>').join('')
               + '</div></div>';
           }).join('')
         : '<div class="m-empty"><div class="a">No pitchers logged yet.</div></div>')
         + '</div>';
-    }).join('');
+    }).join('')
+    + '<div style="font-size:10.5px;color:var(--n-tx5);font-family:ui-monospace,Menlo,monospace;'
+    + 'padding:10px 0">IP in baseball notation \u00b7 S% blank until first pitch thrown '
+    + '\u00b7 ERA is season</div>';
 }
 function gLadder(g) {
   const t = trailing(g);
