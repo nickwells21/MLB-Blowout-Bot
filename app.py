@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, send_from_directory
 
 import bot
 import paths
@@ -61,24 +61,39 @@ def dashboard():
     return send_from_directory(BASE_DIR, "dashboard.html")
 
 
+def _serve_json(name, empty):
+    """Serve a data file, falling back to an empty document when it does not
+    exist yet.
+
+    These files are written lazily: alerts_log.json in particular is only
+    created when the first position-player alert fires, which on a fresh
+    volume can be days. A 404 there forces every client to special-case a
+    missing file, so serve the empty shape instead and keep the contract
+    "these endpoints always return valid JSON"."""
+    path = os.path.join(paths.DATA_DIR, name)
+    if not os.path.exists(path):
+        return jsonify(empty)
+    return send_from_directory(paths.DATA_DIR, name)
+
+
 @app.route("/status.json")
 def status_json():
-    return send_from_directory(paths.DATA_DIR, "status.json")
+    return _serve_json("status.json", {"bot_state": "starting", "live_games": 0})
 
 
 @app.route("/alerts_log.json")
 def alerts_json():
-    return send_from_directory(paths.DATA_DIR, "alerts_log.json")
+    return _serve_json("alerts_log.json", [])
 
 
 @app.route("/odds_snapshot.json")
 def odds_json():
-    return send_from_directory(paths.DATA_DIR, "odds_snapshot.json")
+    return _serve_json("odds_snapshot.json", {"games": []})
 
 
 @app.route("/live_snapshot.json")
 def live_json():
-    return send_from_directory(paths.DATA_DIR, "live_snapshot.json")
+    return _serve_json("live_snapshot.json", {"games": []})
 
 
 start_bot_thread()
